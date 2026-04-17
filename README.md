@@ -43,24 +43,37 @@ location. If you clone elsewhere, edit the `ExecStart=` path in
 
 1. Symlinks `systemd/claude-discord@.service` into `~/.config/systemd/user/`
    (one template symlink covers every instance; backs up any existing file).
-2. Creates `~/claude-discord/<instance>/{claude-personality,logs}/`.
+2. Creates `~/claude-discord/<instance>/{claude-personality,logs,.claude}/`.
 3. Seeds `~/claude-discord/<instance>/.bot.env` from `bot.env.example`
    (mode 0600) if it doesn't already exist.
-4. Adds the [`vox-plugins`](https://github.com/VoX/vox-plugins) marketplace
-   and installs the `discord` + `scheduler` plugins (skipped if already
-   present, or if `claude` isn't on `PATH`).
-5. Prints the remaining manual steps.
+4. Seeds `~/claude-discord/<instance>/claude-personality/CLAUDE.md`
+   from `claude-personality.md.example` — generic communication rules
+   plus a placeholder "Personality" section for you to customize.
+5. Seeds `~/claude-discord/<instance>/.claude/settings.json` with
+   `skipDangerousModePermissionPrompt: true` so the TUI accepts the
+   dev-channels warning under systemd.
+6. Adds the [`vox-plugins`](https://github.com/VoX/vox-plugins) marketplace
+   and installs the `discord` + `scheduler` plugins under the per-instance
+   `CLAUDE_CONFIG_DIR` (skipped if already present, or if `claude` isn't on
+   `PATH`).
+7. Seeds an empty claude session named `<instance>` so the bot can
+   `--resume <instance>` immediately after you log in.
+8. Prints the remaining manual steps.
 
-Then:
+Then log in and configure the Discord bot under the per-instance config
+dir, and start the service:
 
 ```bash
-# make sure the claude session exists (named the same as the instance
-# by default) — create it once if not:
-claude -n <instance>
+# Log in to Anthropic + register the Discord bot token.
+# CLAUDE_CONFIG_DIR scopes both to the instance's .claude/ folder.
+CLAUDE_CONFIG_DIR=~/claude-discord/<instance>/.claude claude
+  > /login
+  > /discord:configure
+  > (exit)
 
 # optional tweaks:
-$EDITOR ~/claude-discord/<instance>/.bot.env                      # override defaults
-# drop a CLAUDE.md into ~/claude-discord/<instance>/claude-personality/
+$EDITOR ~/claude-discord/<instance>/.bot.env                                 # override defaults
+$EDITOR ~/claude-discord/<instance>/claude-personality/CLAUDE.md             # give the bot a personality
 
 systemctl --user daemon-reload
 systemctl --user enable --now claude-discord@<instance>
@@ -125,6 +138,7 @@ plan on running more than two bots on a 16G box.
 systemd/claude-discord@.service   # template unit (uses %i for instance name)
 bin/claude-discord-wrapper.sh     # expect(1) wrapper: spawns claude, accepts the dev-channels prompt
 bot.env.example                   # template for per-instance .bot.env
+claude-personality.md.example     # starter CLAUDE.md with communication rules + blank personality section
 install.sh                        # per-instance setup helper
 ```
 

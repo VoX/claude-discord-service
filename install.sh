@@ -7,10 +7,18 @@
 # What it does:
 #   1. Symlinks systemd/claude-discord@.service into ~/.config/systemd/user/
 #      (template unit — one symlink covers all instances).
-#   2. Creates ~/claude-discord/<instance>/{claude-personality,logs}/ .
+#   2. Creates ~/claude-discord/<instance>/{claude-personality,logs,.claude}/.
 #   3. Seeds ~/claude-discord/<instance>/.bot.env from bot.env.example (0600)
 #      if that file doesn't already exist.
-#   4. Prints the daemon-reload + enable commands for this instance.
+#   4. Seeds ~/claude-discord/<instance>/claude-personality/CLAUDE.md from
+#      claude-personality.md.example (generic comms rules + blank personality).
+#   5. Seeds ~/claude-discord/<instance>/.claude/settings.json with
+#      skipDangerousModePermissionPrompt=true.
+#   6. Adds the vox-plugins marketplace and installs discord + scheduler
+#      under the per-instance CLAUDE_CONFIG_DIR.
+#   7. Seeds an empty claude session named <instance> so the bot can
+#      --resume <instance> after the user logs in.
+#   8. Prints the daemon-reload + enable commands for this instance.
 #
 # Idempotent — safe to re-run with the same <instance-name>. Does NOT
 # restart the service; you decide when to take a bot down.
@@ -46,6 +54,23 @@ mkdir -p "$HOME/.config/systemd/user" \
          "$INSTANCE_DIR/logs" \
          "$CLAUDE_CONFIG_DIR"
 
+# Seed a minimal settings.json. The only thing we set is
+# skipDangerousModePermissionPrompt — lets the TUI accept the
+# --dangerously-load-development-channels prompt under systemd without
+# a blocking confirmation. Plugin enables + marketplace entries get
+# written by the `claude plugin` CLI further down.
+SETTINGS_DST="$CLAUDE_CONFIG_DIR/settings.json"
+if [[ ! -e "$SETTINGS_DST" ]]; then
+    cat > "$SETTINGS_DST" <<'JSON'
+{
+  "skipDangerousModePermissionPrompt": true
+}
+JSON
+    echo "seeded $SETTINGS_DST"
+else
+    echo "$SETTINGS_DST already exists — leaving it alone"
+fi
+
 if [[ -L "$UNIT_DST" || -f "$UNIT_DST" ]]; then
     existing="$(readlink -f "$UNIT_DST" 2>/dev/null || echo "$UNIT_DST")"
     if [[ "$existing" == "$UNIT_SRC" ]]; then
@@ -67,6 +92,18 @@ if [[ ! -e "$ENV_DST" ]]; then
     echo "seeded $ENV_DST from template (0600) — fine to leave untouched if defaults are OK"
 else
     echo "$ENV_DST already exists — leaving it alone"
+fi
+
+# Seed a starter personality file. Generic communication rules +
+# formatting guidance, no opinion on voice/tone. User fills in the
+# "Personality" section to make the bot their own.
+PERSONALITY_SRC="$REPO_DIR/claude-personality.md.example"
+PERSONALITY_DST="$INSTANCE_DIR/claude-personality/CLAUDE.md"
+if [[ ! -e "$PERSONALITY_DST" ]]; then
+    sed "s/<<INSTANCE>>/$INSTANCE/g" "$PERSONALITY_SRC" > "$PERSONALITY_DST"
+    echo "seeded $PERSONALITY_DST from template"
+else
+    echo "$PERSONALITY_DST already exists — leaving it alone"
 fi
 
 # --- vox-plugins marketplace + plugins (opinionated) --------------------
@@ -93,12 +130,40 @@ else
     echo "         install claude, then re-run this script to finish plugin setup"
 fi
 
+# --- seed a minimal claude session named <instance> ---------------------
+# `claude --resume <instance>` matches on the first-line `custom-title`
+# record of each session JSONL. Seeding one here means the systemd unit
+# can resume immediately after the user configures credentials — no
+# manual `claude -n <instance>` step required.
+#
+# Encoded project path mirrors claude's own scheme: the WorkingDirectory
+# ('/home/ec2-user/claude-discord/<instance>') with '/' -> '-', leading
+# slash producing the leading '-'.
+SESSION_PROJECT_DIR="$CLAUDE_CONFIG_DIR/projects/${INSTANCE_DIR//\//-}"
+mkdir -p "$SESSION_PROJECT_DIR"
+shopt -s nullglob
+existing_sessions=("$SESSION_PROJECT_DIR"/*.jsonl)
+shopt -u nullglob
+if (( ${#existing_sessions[@]} == 0 )); then
+    SEED_UUID="$(cat /proc/sys/kernel/random/uuid)"
+    SEED_FILE="$SESSION_PROJECT_DIR/$SEED_UUID.jsonl"
+    printf '{"type":"custom-title","customTitle":"%s","sessionId":"%s"}\n' \
+        "$INSTANCE" "$SEED_UUID" > "$SEED_FILE"
+    echo "seeded empty session '$INSTANCE' -> $SEED_FILE"
+else
+    echo "session files already present in $SESSION_PROJECT_DIR — skipping seed"
+fi
+
 cat <<EOM
 
 Next steps for instance '$INSTANCE':
-  1. Make sure a claude session named '$INSTANCE' exists
-     (create with 'claude -n $INSTANCE' if not)
-  2. Optional: drop a CLAUDE.md into $INSTANCE_DIR/claude-personality/
+  1. Log in to Anthropic and register the Discord bot under the
+     per-instance config dir:
+       CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR claude
+         > /login
+         > /discord:configure
+         > (exit when done)
+  2. Optional: edit $PERSONALITY_DST to give the bot a personality
   3. Optional: edit $ENV_DST to override defaults (model, plugins, etc.)
   4. systemctl --user daemon-reload
   5. systemctl --user enable --now claude-discord@$INSTANCE
