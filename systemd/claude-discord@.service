@@ -5,13 +5,17 @@ After=network.target
 [Service]
 Type=forking
 ExecStart=/usr/bin/screen -dmS ${SCREEN_SESSION} %h/projects/claude-discord-service/bin/claude-discord-wrapper.sh
-ExecStop=/usr/bin/screen -S ${SCREEN_SESSION} -X quit
 WorkingDirectory=%h/claude-discord/%i
 Restart=always
 RestartSec=5
-KillMode=mixed
+# control-group: SIGTERM every pid in the cgroup (claude + bun MCP children),
+# not just the main screen pid. Ensures MCP servers shut down cleanly on stop
+# instead of getting reparented to pid 1 when the main exits first.
+KillMode=control-group
 KillSignal=SIGTERM
-TimeoutStopSec=10
+# Enough time for claude + plugin MCP servers to drain websockets and exit
+# before systemd escalates to SIGKILL.
+TimeoutStopSec=30
 SuccessExitStatus=1
 MemoryMax=8G
 MemoryHigh=6G
