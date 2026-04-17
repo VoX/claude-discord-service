@@ -15,7 +15,8 @@
 #   5. Seeds ~/claude-discord/<instance>/.claude/settings.json with
 #      skipDangerousModePermissionPrompt=true.
 #   6. Seeds ~/claude-discord/<instance>/.claude/.claude.json with
-#      hasCompletedOnboarding=true so the first `claude` launch under
+#      hasCompletedOnboarding=true and resumeReturnDismissed=true so the
+#      first `claude` launch under
 #      this CLAUDE_CONFIG_DIR goes straight to /login instead of the
 #      onboarding/picker flow.
 #   7. Adds the vox-plugins marketplace and installs discord + scheduler
@@ -79,6 +80,8 @@ fi
 # /discord:configure etc. and drops straight to the login picker on the
 # first run. hasCompletedOnboarding=true + lastOnboardingVersion pinned to
 # the current CLI version is enough to route /login like a normal account.
+# resumeReturnDismissed=true silences the "Resume from summary / full / don't
+# ask again" picker that otherwise blocks headless restart on long sessions.
 CLAUDE_JSON_DST="$CLAUDE_CONFIG_DIR/.claude.json"
 if [[ ! -e "$CLAUDE_JSON_DST" ]]; then
     CLAUDE_VERSION="$(claude --version 2>/dev/null | awk '{print $1}' || true)"
@@ -87,7 +90,8 @@ if [[ ! -e "$CLAUDE_JSON_DST" ]]; then
 {
   "hasCompletedOnboarding": true,
   "lastOnboardingVersion": "$CLAUDE_VERSION",
-  "firstStartTime": "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+  "firstStartTime": "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)",
+  "resumeReturnDismissed": true
 }
 JSON
     chmod 600 "$CLAUDE_JSON_DST"

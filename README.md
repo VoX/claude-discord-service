@@ -58,7 +58,9 @@ location. If you clone elsewhere, edit the `ExecStart=` path in
    `hasCompletedOnboarding: true` (plus `lastOnboardingVersion` pinned to
    the current `claude --version`) so the first `claude` launch under the
    fresh `CLAUDE_CONFIG_DIR` goes straight to `/login` instead of the
-   onboarding picker.
+   onboarding picker. Also sets `resumeReturnDismissed: true` so
+   `claude --resume` on a long session doesn't stall on the "resume from
+   summary vs full session" picker.
 7. Adds the [`vox-plugins`](https://github.com/VoX/vox-plugins) marketplace
    and installs the `discord` + `scheduler` plugins under the per-instance
    `CLAUDE_CONFIG_DIR` (skipped if already present, or if `claude` isn't on
