@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 Type=forking
-ExecStart=/usr/bin/screen -dmS ${SCREEN_SESSION} %h/claude-discord-service/bin/claude-discord-wrapper.sh
+ExecStart=/usr/bin/screen -dmS ${SCREEN_SESSION} %h/projects/claude-discord-service/bin/claude-discord-wrapper.sh
 ExecStop=/usr/bin/screen -S ${SCREEN_SESSION} -X quit
-WorkingDirectory=%h
+WorkingDirectory=%h/projects/claude-discord-service
 Restart=always
 RestartSec=5
 KillMode=mixed
@@ -35,8 +35,8 @@ Environment=CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
 Environment=DISABLE_COST_WARNINGS=1
 Environment=VOX_PLUGINS_ENABLED=1
 
-StandardOutput=append:%h/claude-discord-service/logs/claude-discord.log
-StandardError=append:%h/claude-discord-service/logs/claude-discord.error.log
+StandardOutput=append:%h/projects/claude-discord-service/logs/claude-discord.log
+StandardError=append:%h/projects/claude-discord-service/logs/claude-discord.error.log
 
 [Install]
 WantedBy=default.target

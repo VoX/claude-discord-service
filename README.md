@@ -26,9 +26,11 @@ the unit file itself is generic and safe to commit.
 ## Install
 
 ```bash
-git clone https://github.com/VoX/claude-discord-service ~/claude-discord-service
-~/claude-discord-service/install.sh
+git clone https://github.com/VoX/claude-discord-service ~/projects/claude-discord-service
+~/projects/claude-discord-service/install.sh
 ```
+
+The unit hardcodes `%h/projects/claude-discord-service/` as the repo location — if you clone elsewhere, edit `ExecStart=`, `WorkingDirectory=`, and the log paths in `systemd/claude-discord.service` to match.
 
 `install.sh` is idempotent. It:
 
@@ -90,7 +92,7 @@ harmless (no matching prompt to answer).
 ## Upgrading
 
 ```bash
-cd ~/claude-discord-service
+cd ~/projects/claude-discord-service
 git pull
 systemctl --user daemon-reload          # only if the unit file changed
 systemctl --user restart claude-discord # if anything else changed
@@ -103,7 +105,7 @@ The `install.sh` symlink means `git pull` is enough; no re-copy needed.
 ```bash
 systemctl --user disable --now claude-discord
 rm ~/.config/systemd/user/claude-discord.service
-# optional: rm -rf ~/claude-discord-service ~/.bot.env
+# optional: rm -rf ~/projects/claude-discord-service ~/.bot.env
 ```
 
 ## License
