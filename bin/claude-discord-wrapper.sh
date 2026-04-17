@@ -33,7 +33,7 @@ if {[info exists ::env(BOT_PLUGINS)] && $::env(BOT_PLUGINS) ne ""} {
 
 lappend args --dangerously-skip-permissions --permission-mode bypassPermissions
 
-spawn /usr/bin/claude {*}$args
+spawn $::env(HOME)/.local/bin/claude {*}$args
 
 # Wait for the TUI to finish rendering the warning prompt, then accept.
 # 3s was too tight under systemd cold-start on this box — the prompt rendered
