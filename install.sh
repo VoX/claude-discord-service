@@ -1,34 +1,59 @@
 #!/usr/bin/env bash
-# Symlink the systemd user unit into ~/.config/systemd/user/, create the
-# logs directory, and remind you about the env file + daemon-reload step.
+# Set up a claude-discord@<instance> bot under the current user.
 #
-# Idempotent — safe to re-run after pulling updates. Does NOT restart the
-# service; you decide when to take the bot down.
+# Usage:   install.sh <instance-name>
+# Example: install.sh tinyclaw
+#
+# What it does:
+#   1. Symlinks systemd/claude-discord@.service into ~/.config/systemd/user/
+#      (template unit — one symlink covers all instances).
+#   2. Creates ~/claude-discord/<instance>/{claude-personality,logs}/ .
+#   3. Seeds ~/claude-discord/<instance>/.bot.env from bot.env.example (0600)
+#      if that file doesn't already exist.
+#   4. Prints the daemon-reload + enable commands for this instance.
+#
+# Idempotent — safe to re-run with the same <instance-name>. Does NOT
+# restart the service; you decide when to take a bot down.
 
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-UNIT_SRC="$REPO_DIR/systemd/claude-discord.service"
-UNIT_DST="$HOME/.config/systemd/user/claude-discord.service"
-LOGS_DIR="$REPO_DIR/logs"
-ENV_SRC="$REPO_DIR/bot.env.example"
-ENV_DST="$HOME/.bot.env"
+if [[ $# -lt 1 || -z "${1:-}" ]]; then
+    echo "usage: $0 <instance-name>" >&2
+    echo "example: $0 tinyclaw" >&2
+    exit 2
+fi
 
-mkdir -p "$HOME/.config/systemd/user" "$LOGS_DIR"
+INSTANCE="$1"
+if [[ ! "$INSTANCE" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+    echo "instance name must match [a-z0-9][a-z0-9_-]* (got: $INSTANCE)" >&2
+    exit 2
+fi
+
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+UNIT_SRC="$REPO_DIR/systemd/claude-discord@.service"
+UNIT_DST="$HOME/.config/systemd/user/claude-discord@.service"
+ENV_SRC="$REPO_DIR/bot.env.example"
+
+INSTANCE_DIR="$HOME/claude-discord/$INSTANCE"
+ENV_DST="$INSTANCE_DIR/.bot.env"
+
+mkdir -p "$HOME/.config/systemd/user" \
+         "$INSTANCE_DIR/claude-personality" \
+         "$INSTANCE_DIR/logs"
 
 if [[ -L "$UNIT_DST" || -f "$UNIT_DST" ]]; then
     existing="$(readlink -f "$UNIT_DST" 2>/dev/null || echo "$UNIT_DST")"
     if [[ "$existing" == "$UNIT_SRC" ]]; then
-        echo "unit already points at $UNIT_SRC"
+        echo "template unit already points at $UNIT_SRC"
     else
         backup="$UNIT_DST.bak.$(date -u +%Y%m%dT%H%M%SZ)"
         mv "$UNIT_DST" "$backup"
         ln -s "$UNIT_SRC" "$UNIT_DST"
-        echo "replaced existing unit (backed up to $backup)"
+        echo "replaced existing template unit (backed up to $backup)"
     fi
 else
     ln -s "$UNIT_SRC" "$UNIT_DST"
-    echo "linked unit: $UNIT_DST -> $UNIT_SRC"
+    echo "linked template unit: $UNIT_DST -> $UNIT_SRC"
 fi
 
 if [[ ! -e "$ENV_DST" ]]; then
@@ -41,11 +66,12 @@ fi
 
 cat <<EOM
 
-Next steps:
-  1. Edit $ENV_DST and set BOT_SESSION_NAME (at minimum)
-  2. systemctl --user daemon-reload
-  3. systemctl --user enable --now claude-discord
-  4. journalctl --user -u claude-discord -f   # watch it come up
+Next steps for instance '$INSTANCE':
+  1. Edit $ENV_DST (at minimum set BOT_SESSION_NAME)
+  2. Drop a CLAUDE.md into $INSTANCE_DIR/claude-personality/ (optional)
+  3. systemctl --user daemon-reload
+  4. systemctl --user enable --now claude-discord@$INSTANCE
+  5. journalctl --user -u claude-discord@$INSTANCE -f
 
-Logs stream to $LOGS_DIR/claude-discord{,.error}.log as well.
+Logs stream to $INSTANCE_DIR/logs/claude-discord{,.error}.log as well.
 EOM

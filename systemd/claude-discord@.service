@@ -1,12 +1,12 @@
 [Unit]
-Description=Claude Code Discord bot
+Description=Claude Code Discord bot (%i)
 After=network.target
 
 [Service]
 Type=forking
 ExecStart=/usr/bin/screen -dmS ${SCREEN_SESSION} %h/projects/claude-discord-service/bin/claude-discord-wrapper.sh
 ExecStop=/usr/bin/screen -S ${SCREEN_SESSION} -X quit
-WorkingDirectory=%h/projects/claude-discord-service
+WorkingDirectory=%h/claude-discord/%i
 Restart=always
 RestartSec=5
 KillMode=mixed
@@ -16,14 +16,17 @@ SuccessExitStatus=1
 MemoryMax=8G
 MemoryHigh=6G
 
-# User overrides (session name, plugins, personality dir, model selection, etc.)
-# Copy bot.env.example to ~/.bot.env and customize. Leading '-' = skip if missing.
-EnvironmentFile=-%h/.bot.env
+# Per-instance overrides. install.sh <name> seeds this from bot.env.example.
+# Leading '-' = service still starts if the file is missing (wrapper will
+# fail fast on absent BOT_SESSION_NAME).
+EnvironmentFile=-%h/claude-discord/%i/.bot.env
 
-# Default screen session name if ~/.bot.env doesn't set one.
-Environment=SCREEN_SESSION=claude-discord
+# Per-instance defaults derived from %i. Override either of these in
+# the per-instance .bot.env if you need to.
+Environment=SCREEN_SESSION=claude-discord-%i
+Environment=BOT_ADD_DIR=%h/claude-discord/%i/claude-personality
 
-# Runtime defaults — shared across installs, rarely need to change.
+# Shared runtime defaults — same for every instance.
 Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 Environment=CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1
@@ -35,8 +38,8 @@ Environment=CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
 Environment=DISABLE_COST_WARNINGS=1
 Environment=VOX_PLUGINS_ENABLED=1
 
-StandardOutput=append:%h/projects/claude-discord-service/logs/claude-discord.log
-StandardError=append:%h/projects/claude-discord-service/logs/claude-discord.error.log
+StandardOutput=append:%h/claude-discord/%i/logs/claude-discord.log
+StandardError=append:%h/claude-discord/%i/logs/claude-discord.error.log
 
 [Install]
 WantedBy=default.target
