@@ -36,7 +36,10 @@ lappend args --dangerously-skip-permissions --permission-mode bypassPermissions
 spawn /usr/bin/claude {*}$args
 
 # Wait for the TUI to finish rendering the warning prompt, then accept.
-sleep 3
+# 3s was too tight under systemd cold-start on this box — the prompt rendered
+# but send "\r" fired before claude was ready to consume it. 8s is dumb but
+# reliable; escape codes make text-matching brittle.
+sleep 8
 send "\r"
 
 # Hand off to the screen session for the long run.
