@@ -37,6 +37,10 @@ Environment=CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1
 Environment=CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
 Environment=DISABLE_COST_WARNINGS=1
 Environment=VOX_PLUGINS_ENABLED=1
+# Skip Discord permission prompts; the bot's persona rules (CLAUDE.md) do
+# the gating instead. Requires discord plugin >= 0.1.18. Comment out if
+# you want the Allow/Deny DM flow on tool calls.
+Environment=DISCORD_AUTO_ALLOW_PERMISSIONS=1
 
 StandardOutput=append:%h/claude-discord/%i/logs/claude-discord.log
 StandardError=append:%h/claude-discord/%i/logs/claude-discord.error.log
