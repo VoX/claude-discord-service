@@ -1,0 +1,42 @@
+[Unit]
+Description=Claude Code Discord bot
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/usr/bin/screen -dmS ${SCREEN_SESSION} %h/claude-discord-service/bin/claude-discord-wrapper.sh
+ExecStop=/usr/bin/screen -S ${SCREEN_SESSION} -X quit
+WorkingDirectory=%h
+Restart=always
+RestartSec=5
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=10
+SuccessExitStatus=1
+MemoryMax=8G
+MemoryHigh=6G
+
+# User overrides (session name, plugins, personality dir, model selection, etc.)
+# Copy bot.env.example to ~/.bot.env and customize. Leading '-' = skip if missing.
+EnvironmentFile=-%h/.bot.env
+
+# Default screen session name if ~/.bot.env doesn't set one.
+Environment=SCREEN_SESSION=claude-discord
+
+# Runtime defaults — shared across installs, rarely need to change.
+Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+Environment=CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1
+Environment=CLAUDE_ENABLE_STREAM_WATCHDOG=1
+Environment=CLAUDE_STREAM_IDLE_TIMEOUT_MS=60000
+Environment=CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1
+Environment=CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1
+Environment=CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
+Environment=DISABLE_COST_WARNINGS=1
+Environment=VOX_PLUGINS_ENABLED=1
+
+StandardOutput=append:%h/claude-discord-service/logs/claude-discord.log
+StandardError=append:%h/claude-discord-service/logs/claude-discord.error.log
+
+[Install]
+WantedBy=default.target
