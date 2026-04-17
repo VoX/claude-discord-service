@@ -14,11 +14,15 @@
 #      CLAUDE.md.example (generic comms rules + blank personality).
 #   5. Seeds ~/claude-discord/<instance>/.claude/settings.json with
 #      skipDangerousModePermissionPrompt=true.
-#   6. Adds the vox-plugins marketplace and installs discord + scheduler
+#   6. Seeds ~/claude-discord/<instance>/.claude/.claude.json with
+#      hasCompletedOnboarding=true so the first `claude` launch under
+#      this CLAUDE_CONFIG_DIR goes straight to /login instead of the
+#      onboarding/picker flow.
+#   7. Adds the vox-plugins marketplace and installs discord + scheduler
 #      under the per-instance CLAUDE_CONFIG_DIR.
-#   7. Seeds an empty claude session named <instance> so the bot can
+#   8. Seeds an empty claude session named <instance> so the bot can
 #      --resume <instance> after the user logs in.
-#   8. Prints the daemon-reload + enable commands for this instance.
+#   9. Prints the daemon-reload + enable commands for this instance.
 #
 # Idempotent — safe to re-run with the same <instance-name>. Does NOT
 # restart the service; you decide when to take a bot down.
@@ -68,6 +72,28 @@ JSON
     echo "seeded $SETTINGS_DST"
 else
     echo "$SETTINGS_DST already exists — leaving it alone"
+fi
+
+# Seed a minimal .claude.json. Without this, claude launched under a fresh
+# CLAUDE_CONFIG_DIR treats the instance as a brand-new user — skips
+# /discord:configure etc. and drops straight to the login picker on the
+# first run. hasCompletedOnboarding=true + lastOnboardingVersion pinned to
+# the current CLI version is enough to route /login like a normal account.
+CLAUDE_JSON_DST="$CLAUDE_CONFIG_DIR/.claude.json"
+if [[ ! -e "$CLAUDE_JSON_DST" ]]; then
+    CLAUDE_VERSION="$(claude --version 2>/dev/null | awk '{print $1}' || true)"
+    CLAUDE_VERSION="${CLAUDE_VERSION:-0.0.0}"
+    cat > "$CLAUDE_JSON_DST" <<JSON
+{
+  "hasCompletedOnboarding": true,
+  "lastOnboardingVersion": "$CLAUDE_VERSION",
+  "firstStartTime": "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+}
+JSON
+    chmod 600 "$CLAUDE_JSON_DST"
+    echo "seeded $CLAUDE_JSON_DST (onboarding bypass)"
+else
+    echo "$CLAUDE_JSON_DST already exists — leaving it alone"
 fi
 
 if [[ -L "$UNIT_DST" || -f "$UNIT_DST" ]]; then

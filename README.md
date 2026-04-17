@@ -53,13 +53,18 @@ location. If you clone elsewhere, edit the `ExecStart=` path in
 5. Seeds `~/claude-discord/<instance>/.claude/settings.json` with
    `skipDangerousModePermissionPrompt: true` so the TUI accepts the
    dev-channels warning under systemd.
-6. Adds the [`vox-plugins`](https://github.com/VoX/vox-plugins) marketplace
+6. Seeds `~/claude-discord/<instance>/.claude/.claude.json` with
+   `hasCompletedOnboarding: true` (plus `lastOnboardingVersion` pinned to
+   the current `claude --version`) so the first `claude` launch under the
+   fresh `CLAUDE_CONFIG_DIR` goes straight to `/login` instead of the
+   onboarding picker.
+7. Adds the [`vox-plugins`](https://github.com/VoX/vox-plugins) marketplace
    and installs the `discord` + `scheduler` plugins under the per-instance
    `CLAUDE_CONFIG_DIR` (skipped if already present, or if `claude` isn't on
    `PATH`).
-7. Seeds an empty claude session named `<instance>` so the bot can
+8. Seeds an empty claude session named `<instance>` so the bot can
    `--resume <instance>` immediately after you log in.
-8. Prints the remaining manual steps.
+9. Prints the remaining manual steps.
 
 Then log in and configure the Discord bot under the per-instance config
 dir, and start the service:
