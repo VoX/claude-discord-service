@@ -17,10 +17,11 @@ this repo), so the unit file is generic and safe to commit.
 
 ## What this is not
 
-- Not a plugin installer. The Discord/scheduler plugins live in
-  [`vox-plugins`](https://github.com/VoX/vox-plugins); install them separately.
-- Not the Discord bot token store. That lives in
-  `~/.claude/channels/discord/.env` and is managed by `/discord:configure`.
+- Not a Discord bot. The bot-side logic (MCP server, event handlers,
+  Allow/Deny permission prompts) lives in the
+  [`vox-plugins`](https://github.com/VoX/vox-plugins) `discord` plugin —
+  this repo just wires up systemd to launch a long-running Claude session
+  that loads it. `install.sh` does handle the plugin install for you.
 - Not a multi-user orchestrator. One unit template runs any number of
   instances for one user.
 
@@ -93,12 +94,15 @@ Each instance gets its own folder:
 ```
 ~/claude-discord/<instance>/
 ├── .bot.env                 # per-instance config (0600, gitignored)
-├── .claude/                 # per-instance CLAUDE_CONFIG_DIR: sessions,
-│   │                        #   plugins, channel state (discord token +
-│   │                        #   scheduler jobs) — fully isolated from
-│   │                        #   the user's own ~/.claude/
+├── .claude/                 # per-instance CLAUDE_CONFIG_DIR — fully
+│   │                        #   isolated from the user's own ~/.claude/
 │   ├── CLAUDE.md            # personality + comms rules (auto-loaded)
-│   └── settings.json        # skipDangerousModePermissionPrompt
+│   ├── settings.json        # skipDangerousModePermissionPrompt
+│   ├── .claude.json         # onboarding-bypass markers
+│   ├── .credentials.json    # Anthropic OAuth tokens (written by /login)
+│   ├── channels/            # discord token + allowlist + scheduler jobs
+│   ├── plugins/             # marketplace cache + installed plugin registry
+│   └── projects/            # session jsonl history
 └── logs/
     ├── claude-discord.log
     └── claude-discord.error.log
@@ -160,7 +164,25 @@ dumb-but-reliable — escape codes in the TUI make text-matching brittle.
 If you don't use dev-channel plugins, the sleep+send still runs but is
 harmless (no matching prompt to answer).
 
+## Permission prompts
+
+The unit ships `DISCORD_AUTO_ALLOW_PERMISSIONS=1`, which tells the
+`discord` plugin to skip the Allow/Deny DM flow for `permission_request`
+notifications and auto-approve every tool call. The assumption is that
+gating lives in the bot's persona rules (its `CLAUDE.md`) rather than
+the OS-prompt layer — the DM flow gets noisy fast for a long-running
+agent. Each auto-allow still writes an audit line to stderr (visible in
+`journalctl --user -u claude-discord@<instance>`).
+
+If you'd rather route every tool call through Discord DMs with
+Allow/Deny buttons, comment out the `Environment=DISCORD_AUTO_ALLOW_PERMISSIONS=1`
+line in `systemd/claude-discord@.service` (or override it with
+`DISCORD_AUTO_ALLOW_PERMISSIONS=0` in `.bot.env`) and restart the
+instance. Requires the `discord` plugin at version `0.1.18` or later.
+
 ## Upgrading
+
+Upgrading this repo (the unit + wrapper):
 
 ```bash
 cd ~/projects/claude-discord-service
@@ -171,6 +193,16 @@ systemctl --user restart 'claude-discord@*'              # restart all instances
 ```
 
 The `install.sh` symlink means `git pull` is enough; no re-copy needed.
+
+Upgrading the plugins is separate — the `vox-plugins` marketplace is
+pulled into each instance's `CLAUDE_CONFIG_DIR` and pinned there, so
+`git pull` on this repo doesn't move them. Per instance:
+
+```bash
+CLAUDE_CONFIG_DIR=~/claude-discord/<instance>/.claude \
+  claude plugin update discord@vox-plugins scheduler@vox-plugins
+systemctl --user restart claude-discord@<instance>
+```
 
 ## Uninstall
 
