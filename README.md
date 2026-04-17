@@ -46,7 +46,10 @@ location. If you clone elsewhere, edit the `ExecStart=` path in
 2. Creates `~/claude-discord/<instance>/{claude-personality,logs}/`.
 3. Seeds `~/claude-discord/<instance>/.bot.env` from `bot.env.example`
    (mode 0600) if it doesn't already exist.
-4. Prints the remaining manual steps.
+4. Adds the [`vox-plugins`](https://github.com/VoX/vox-plugins) marketplace
+   and installs the `discord` + `scheduler` plugins (skipped if already
+   present, or if `claude` isn't on `PATH`).
+5. Prints the remaining manual steps.
 
 Then:
 
@@ -71,6 +74,10 @@ Each instance gets its own folder:
 ```
 ~/claude-discord/<instance>/
 ├── .bot.env                 # per-instance config (0600, gitignored)
+├── .claude/                 # per-instance CLAUDE_CONFIG_DIR: sessions,
+│                            #   plugins, channel state (discord token +
+│                            #   scheduler jobs) — fully isolated from
+│                            #   the user's own ~/.claude/
 ├── claude-personality/      # CLAUDE.md + any files mounted via --add-dir
 └── logs/
     ├── claude-discord.log
@@ -79,7 +86,8 @@ Each instance gets its own folder:
 
 The unit derives per-instance paths from `%i` (the part after `@` in
 the unit name), so `claude-discord@tinyclaw` reads
-`~/claude-discord/tinyclaw/.bot.env` and writes to
+`~/claude-discord/tinyclaw/.bot.env`, stores its Claude state under
+`~/claude-discord/tinyclaw/.claude/`, and writes to
 `~/claude-discord/tinyclaw/logs/`.
 
 ## Configuration (`~/claude-discord/<instance>/.bot.env`)
@@ -89,13 +97,13 @@ Systemd reads this file as plain `KEY=VALUE` lines — no shell expansion.
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `BOT_SESSION_NAME` | no | `<instance>` | `claude --resume <name>` target. Defaults to the instance name; override if you want the service to resume a differently-named session. Must already exist. |
-| `BOT_PLUGINS` | no | unset | Space-separated specs for `--dangerously-load-development-channels`. |
+| `BOT_PLUGINS` | no | `plugin:discord@vox-plugins plugin:scheduler@vox-plugins` | Space-separated specs for `--dangerously-load-development-channels`. Shipped example pre-enables the vox-plugins discord + scheduler plugins; clear the line to disable. |
 | `SCREEN_SESSION` | no | `claude-discord-<instance>` | Screen session name the wrapper runs under. Default is already unique per instance; override only if you need a specific name. |
 | `BOT_ADD_DIR` | no | `~/claude-discord/<instance>/claude-personality` | Extra dir mounted via `--add-dir`. |
-| `ANTHROPIC_MODEL` | no | Claude Code default | Override the model. |
-| `CLAUDE_CODE_SUBAGENT_MODEL` | no | Claude Code default | Override subagent model. |
-| `CLAUDE_CODE_EFFORT_LEVEL` | no | Claude Code default | `low` / `medium` / `high` / `max`. |
-| `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | no | Claude Code default | Tokens-before-compact threshold. |
+| `ANTHROPIC_MODEL` | no | `claude-opus-4-7` | Shipped example pins Opus 4.7; comment out for the Claude Code default. |
+| `CLAUDE_CODE_SUBAGENT_MODEL` | no | `claude-opus-4-7` | Shipped example pins Opus 4.7 for subagents too. |
+| `CLAUDE_CODE_EFFORT_LEVEL` | no | `max` | `low` / `medium` / `high` / `max`. |
+| `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | no | `750000` | Tokens-before-compact threshold. |
 
 See `bot.env.example` for the commented template.
 

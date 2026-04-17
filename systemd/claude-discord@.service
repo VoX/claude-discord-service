@@ -26,6 +26,7 @@ EnvironmentFile=-%h/claude-discord/%i/.bot.env
 Environment=BOT_SESSION_NAME=%i
 Environment=SCREEN_SESSION=claude-discord-%i
 Environment=BOT_ADD_DIR=%h/claude-discord/%i/claude-personality
+Environment=CLAUDE_CONFIG_DIR=%h/claude-discord/%i/.claude
 
 # Shared runtime defaults — same for every instance.
 Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin

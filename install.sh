@@ -37,9 +37,14 @@ ENV_SRC="$REPO_DIR/bot.env.example"
 INSTANCE_DIR="$HOME/claude-discord/$INSTANCE"
 ENV_DST="$INSTANCE_DIR/.bot.env"
 
+# Per-instance CLAUDE_CONFIG_DIR — keeps each bot's sessions, plugins,
+# and channel state isolated from the user's own ~/.claude/.
+export CLAUDE_CONFIG_DIR="$INSTANCE_DIR/.claude"
+
 mkdir -p "$HOME/.config/systemd/user" \
          "$INSTANCE_DIR/claude-personality" \
-         "$INSTANCE_DIR/logs"
+         "$INSTANCE_DIR/logs" \
+         "$CLAUDE_CONFIG_DIR"
 
 if [[ -L "$UNIT_DST" || -f "$UNIT_DST" ]]; then
     existing="$(readlink -f "$UNIT_DST" 2>/dev/null || echo "$UNIT_DST")"
@@ -62,6 +67,30 @@ if [[ ! -e "$ENV_DST" ]]; then
     echo "seeded $ENV_DST from template (0600) — fine to leave untouched if defaults are OK"
 else
     echo "$ENV_DST already exists — leaving it alone"
+fi
+
+# --- vox-plugins marketplace + plugins (opinionated) --------------------
+# Idempotent: only adds / installs what's missing.
+
+if command -v claude >/dev/null 2>&1; then
+    if ! claude plugin marketplace list 2>/dev/null | grep -qE '^\s*❯?\s*vox-plugins\b'; then
+        echo "adding vox-plugins marketplace"
+        claude plugin marketplace add VoX/vox-plugins
+    else
+        echo "vox-plugins marketplace already configured"
+    fi
+
+    for PLUGIN in discord scheduler; do
+        if ! claude plugin list 2>/dev/null | grep -qE "^\s*❯?\s*$PLUGIN@vox-plugins\b"; then
+            echo "installing $PLUGIN@vox-plugins"
+            claude plugin install "$PLUGIN@vox-plugins"
+        else
+            echo "$PLUGIN@vox-plugins already installed"
+        fi
+    done
+else
+    echo "warning: 'claude' CLI not on PATH — skipping marketplace/plugin setup"
+    echo "         install claude, then re-run this script to finish plugin setup"
 fi
 
 cat <<EOM
