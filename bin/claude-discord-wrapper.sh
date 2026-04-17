@@ -8,7 +8,6 @@
 # Config comes from the environment (populated by systemd via ~/.bot.env):
 #
 #   BOT_SESSION_NAME  required  claude --resume session name
-#   BOT_ADD_DIR       optional  extra directory added via --add-dir
 #   BOT_PLUGINS       optional  space-separated plugin specs for
 #                               --dangerously-load-development-channels
 #                               e.g. "plugin:discord@vox-plugins plugin:scheduler@vox-plugins"
@@ -24,10 +23,6 @@ if {![info exists ::env(BOT_SESSION_NAME)] || $::env(BOT_SESSION_NAME) eq ""} {
 }
 
 set args [list --resume $::env(BOT_SESSION_NAME)]
-
-if {[info exists ::env(BOT_ADD_DIR)] && $::env(BOT_ADD_DIR) ne ""} {
-    lappend args --add-dir $::env(BOT_ADD_DIR)
-}
 
 if {[info exists ::env(BOT_PLUGINS)] && $::env(BOT_PLUGINS) ne ""} {
     lappend args --dangerously-load-development-channels

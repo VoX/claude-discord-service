@@ -10,8 +10,7 @@ For each bot you run, one long-lived `claude --resume <name>` session,
 kept alive under a `screen` wrapper, reconnected to Discord via an MCP
 plugin. The unit is a systemd **template** (`claude-discord@.service`),
 so one file on disk can spawn any number of bot instances — each with
-its own working directory, env file, personality folder, logs, and
-screen session.
+its own working directory, env file, logs, and screen session.
 
 All per-bot config lives under `~/claude-discord/<instance>/` (not in
 this repo), so the unit file is generic and safe to commit.
@@ -43,12 +42,14 @@ location. If you clone elsewhere, edit the `ExecStart=` path in
 
 1. Symlinks `systemd/claude-discord@.service` into `~/.config/systemd/user/`
    (one template symlink covers every instance; backs up any existing file).
-2. Creates `~/claude-discord/<instance>/{claude-personality,logs,.claude}/`.
+2. Creates `~/claude-discord/<instance>/{logs,.claude}/`.
 3. Seeds `~/claude-discord/<instance>/.bot.env` from `bot.env.example`
    (mode 0600) if it doesn't already exist.
-4. Seeds `~/claude-discord/<instance>/claude-personality/CLAUDE.md`
-   from `claude-personality.md.example` — generic communication rules
-   plus a placeholder "Personality" section for you to customize.
+4. Seeds `~/claude-discord/<instance>/.claude/CLAUDE.md` from
+   `CLAUDE.md.example` — generic communication rules plus a placeholder
+   "Personality" section for you to customize. Claude auto-loads this as
+   user-level memory (it's the per-instance `CLAUDE_CONFIG_DIR`), so no
+   `--add-dir` plumbing.
 5. Seeds `~/claude-discord/<instance>/.claude/settings.json` with
    `skipDangerousModePermissionPrompt: true` so the TUI accepts the
    dev-channels warning under systemd.
@@ -72,8 +73,8 @@ CLAUDE_CONFIG_DIR=~/claude-discord/<instance>/.claude claude
   > (exit)
 
 # optional tweaks:
-$EDITOR ~/claude-discord/<instance>/.bot.env                                 # override defaults
-$EDITOR ~/claude-discord/<instance>/claude-personality/CLAUDE.md             # give the bot a personality
+$EDITOR ~/claude-discord/<instance>/.bot.env                   # override defaults
+$EDITOR ~/claude-discord/<instance>/.claude/CLAUDE.md          # give the bot a personality
 
 systemctl --user daemon-reload
 systemctl --user enable --now claude-discord@<instance>
@@ -88,10 +89,11 @@ Each instance gets its own folder:
 ~/claude-discord/<instance>/
 ├── .bot.env                 # per-instance config (0600, gitignored)
 ├── .claude/                 # per-instance CLAUDE_CONFIG_DIR: sessions,
-│                            #   plugins, channel state (discord token +
-│                            #   scheduler jobs) — fully isolated from
-│                            #   the user's own ~/.claude/
-├── claude-personality/      # CLAUDE.md + any files mounted via --add-dir
+│   │                        #   plugins, channel state (discord token +
+│   │                        #   scheduler jobs) — fully isolated from
+│   │                        #   the user's own ~/.claude/
+│   ├── CLAUDE.md            # personality + comms rules (auto-loaded)
+│   └── settings.json        # skipDangerousModePermissionPrompt
 └── logs/
     ├── claude-discord.log
     └── claude-discord.error.log
@@ -112,7 +114,6 @@ Systemd reads this file as plain `KEY=VALUE` lines — no shell expansion.
 | `BOT_SESSION_NAME` | no | `<instance>` | `claude --resume <name>` target. Defaults to the instance name; override if you want the service to resume a differently-named session. Must already exist. |
 | `BOT_PLUGINS` | no | `plugin:discord@vox-plugins plugin:scheduler@vox-plugins` | Space-separated specs for `--dangerously-load-development-channels`. Shipped example pre-enables the vox-plugins discord + scheduler plugins; clear the line to disable. |
 | `SCREEN_SESSION` | no | `claude-discord-<instance>` | Screen session name the wrapper runs under. Default is already unique per instance; override only if you need a specific name. |
-| `BOT_ADD_DIR` | no | `~/claude-discord/<instance>/claude-personality` | Extra dir mounted via `--add-dir`. |
 | `ANTHROPIC_MODEL` | no | `claude-opus-4-7` | Shipped example pins Opus 4.7; comment out for the Claude Code default. |
 | `CLAUDE_CODE_SUBAGENT_MODEL` | no | `claude-opus-4-7` | Shipped example pins Opus 4.7 for subagents too. |
 | `CLAUDE_CODE_EFFORT_LEVEL` | no | `max` | `low` / `medium` / `high` / `max`. |
@@ -138,7 +139,7 @@ plan on running more than two bots on a 16G box.
 systemd/claude-discord@.service   # template unit (uses %i for instance name)
 bin/claude-discord-wrapper.sh     # expect(1) wrapper: spawns claude, accepts the dev-channels prompt
 bot.env.example                   # template for per-instance .bot.env
-claude-personality.md.example     # starter CLAUDE.md with communication rules + blank personality section
+CLAUDE.md.example                 # starter per-instance CLAUDE.md (comms rules + blank personality)
 install.sh                        # per-instance setup helper
 ```
 

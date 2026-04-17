@@ -7,11 +7,11 @@
 # What it does:
 #   1. Symlinks systemd/claude-discord@.service into ~/.config/systemd/user/
 #      (template unit — one symlink covers all instances).
-#   2. Creates ~/claude-discord/<instance>/{claude-personality,logs,.claude}/.
+#   2. Creates ~/claude-discord/<instance>/{logs,.claude}/.
 #   3. Seeds ~/claude-discord/<instance>/.bot.env from bot.env.example (0600)
 #      if that file doesn't already exist.
-#   4. Seeds ~/claude-discord/<instance>/claude-personality/CLAUDE.md from
-#      claude-personality.md.example (generic comms rules + blank personality).
+#   4. Seeds ~/claude-discord/<instance>/.claude/CLAUDE.md from
+#      CLAUDE.md.example (generic comms rules + blank personality).
 #   5. Seeds ~/claude-discord/<instance>/.claude/settings.json with
 #      skipDangerousModePermissionPrompt=true.
 #   6. Adds the vox-plugins marketplace and installs discord + scheduler
@@ -50,7 +50,6 @@ ENV_DST="$INSTANCE_DIR/.bot.env"
 export CLAUDE_CONFIG_DIR="$INSTANCE_DIR/.claude"
 
 mkdir -p "$HOME/.config/systemd/user" \
-         "$INSTANCE_DIR/claude-personality" \
          "$INSTANCE_DIR/logs" \
          "$CLAUDE_CONFIG_DIR"
 
@@ -94,11 +93,12 @@ else
     echo "$ENV_DST already exists — leaving it alone"
 fi
 
-# Seed a starter personality file. Generic communication rules +
-# formatting guidance, no opinion on voice/tone. User fills in the
-# "Personality" section to make the bot their own.
-PERSONALITY_SRC="$REPO_DIR/claude-personality.md.example"
-PERSONALITY_DST="$INSTANCE_DIR/claude-personality/CLAUDE.md"
+# Seed a starter CLAUDE.md. Goes at the CLAUDE_CONFIG_DIR root, which
+# claude auto-loads as user-level memory — no --add-dir needed. Content
+# is generic comms rules + formatting guidance with a blank Personality
+# section for the user to fill in.
+PERSONALITY_SRC="$REPO_DIR/CLAUDE.md.example"
+PERSONALITY_DST="$CLAUDE_CONFIG_DIR/CLAUDE.md"
 if [[ ! -e "$PERSONALITY_DST" ]]; then
     sed "s/<<INSTANCE>>/$INSTANCE/g" "$PERSONALITY_SRC" > "$PERSONALITY_DST"
     echo "seeded $PERSONALITY_DST from template"
