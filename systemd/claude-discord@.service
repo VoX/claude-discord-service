@@ -21,8 +21,9 @@ MemoryHigh=6G
 # fail fast on absent BOT_SESSION_NAME).
 EnvironmentFile=-%h/claude-discord/%i/.bot.env
 
-# Per-instance defaults derived from %i. Override either of these in
+# Per-instance defaults derived from %i. Override any of these in
 # the per-instance .bot.env if you need to.
+Environment=BOT_SESSION_NAME=%i
 Environment=SCREEN_SESSION=claude-discord-%i
 Environment=BOT_ADD_DIR=%h/claude-discord/%i/claude-personality
 

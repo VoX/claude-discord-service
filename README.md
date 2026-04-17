@@ -51,8 +51,14 @@ location. If you clone elsewhere, edit the `ExecStart=` path in
 Then:
 
 ```bash
-$EDITOR ~/claude-discord/<instance>/.bot.env   # at minimum, set BOT_SESSION_NAME
-# optional: drop a CLAUDE.md into ~/claude-discord/<instance>/claude-personality/
+# make sure the claude session exists (named the same as the instance
+# by default) — create it once if not:
+claude -n <instance>
+
+# optional tweaks:
+$EDITOR ~/claude-discord/<instance>/.bot.env                      # override defaults
+# drop a CLAUDE.md into ~/claude-discord/<instance>/claude-personality/
+
 systemctl --user daemon-reload
 systemctl --user enable --now claude-discord@<instance>
 journalctl --user -u claude-discord@<instance> -f
@@ -82,7 +88,7 @@ Systemd reads this file as plain `KEY=VALUE` lines — no shell expansion.
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `BOT_SESSION_NAME` | yes | — | `claude --resume <name>` target. Must already exist. |
+| `BOT_SESSION_NAME` | no | `<instance>` | `claude --resume <name>` target. Defaults to the instance name; override if you want the service to resume a differently-named session. Must already exist. |
 | `BOT_PLUGINS` | no | unset | Space-separated specs for `--dangerously-load-development-channels`. |
 | `SCREEN_SESSION` | no | `claude-discord-<instance>` | Screen session name the wrapper runs under. Default is already unique per instance; override only if you need a specific name. |
 | `BOT_ADD_DIR` | no | `~/claude-discord/<instance>/claude-personality` | Extra dir mounted via `--add-dir`. |

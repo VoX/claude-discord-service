@@ -59,7 +59,7 @@ fi
 if [[ ! -e "$ENV_DST" ]]; then
     cp "$ENV_SRC" "$ENV_DST"
     chmod 600 "$ENV_DST"
-    echo "seeded $ENV_DST from template (0600) — edit BOT_SESSION_NAME before starting"
+    echo "seeded $ENV_DST from template (0600) — fine to leave untouched if defaults are OK"
 else
     echo "$ENV_DST already exists — leaving it alone"
 fi
@@ -67,11 +67,13 @@ fi
 cat <<EOM
 
 Next steps for instance '$INSTANCE':
-  1. Edit $ENV_DST (at minimum set BOT_SESSION_NAME)
-  2. Drop a CLAUDE.md into $INSTANCE_DIR/claude-personality/ (optional)
-  3. systemctl --user daemon-reload
-  4. systemctl --user enable --now claude-discord@$INSTANCE
-  5. journalctl --user -u claude-discord@$INSTANCE -f
+  1. Make sure a claude session named '$INSTANCE' exists
+     (create with 'claude -n $INSTANCE' if not)
+  2. Optional: drop a CLAUDE.md into $INSTANCE_DIR/claude-personality/
+  3. Optional: edit $ENV_DST to override defaults (model, plugins, etc.)
+  4. systemctl --user daemon-reload
+  5. systemctl --user enable --now claude-discord@$INSTANCE
+  6. journalctl --user -u claude-discord@$INSTANCE -f
 
 Logs stream to $INSTANCE_DIR/logs/claude-discord{,.error}.log as well.
 EOM
