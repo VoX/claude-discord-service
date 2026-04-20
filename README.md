@@ -128,7 +128,6 @@ Systemd reads this file as plain `KEY=VALUE` lines — no shell expansion.
 | `ANTHROPIC_MODEL` | no | `claude-opus-4-7[1m]` | Shipped example pins Opus 4.7 (1M-context variant); comment out for the Claude Code default. |
 | `CLAUDE_CODE_SUBAGENT_MODEL` | no | `claude-opus-4-7[1m]` | Shipped example pins Opus 4.7 (1M-context) for subagents too. |
 | `CLAUDE_CODE_EFFORT_LEVEL` | no | `max` | `low` / `medium` / `high` / `max`. |
-| `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | no | `750000` | Tokens-before-compact threshold. |
 
 See `bot.env.example` for the commented template.
 
