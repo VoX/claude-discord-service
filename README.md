@@ -125,8 +125,8 @@ Systemd reads this file as plain `KEY=VALUE` lines — no shell expansion.
 | `BOT_SESSION_NAME` | no | `<instance>` | `claude --resume <name>` target. Defaults to the instance name; override if you want the service to resume a differently-named session. Must already exist. |
 | `BOT_PLUGINS` | no | `plugin:discord@vox-plugins plugin:scheduler@vox-plugins` | Space-separated specs for `--dangerously-load-development-channels`. Shipped example pre-enables the vox-plugins discord + scheduler plugins; clear the line to disable. |
 | `SCREEN_SESSION` | no | `claude-discord-<instance>` | Screen session name the wrapper runs under. Default is already unique per instance; override only if you need a specific name. |
-| `ANTHROPIC_MODEL` | no | `claude-opus-4-7` | Shipped example pins Opus 4.7; comment out for the Claude Code default. |
-| `CLAUDE_CODE_SUBAGENT_MODEL` | no | `claude-opus-4-7` | Shipped example pins Opus 4.7 for subagents too. |
+| `ANTHROPIC_MODEL` | no | `claude-opus-4-7[1m]` | Shipped example pins Opus 4.7 (1M-context variant); comment out for the Claude Code default. |
+| `CLAUDE_CODE_SUBAGENT_MODEL` | no | `claude-opus-4-7[1m]` | Shipped example pins Opus 4.7 (1M-context) for subagents too. |
 | `CLAUDE_CODE_EFFORT_LEVEL` | no | `max` | `low` / `medium` / `high` / `max`. |
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | no | `750000` | Tokens-before-compact threshold. |
 
