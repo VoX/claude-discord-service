@@ -147,7 +147,7 @@ if command -v claude >/dev/null 2>&1; then
         echo "vox-plugins marketplace already configured"
     fi
 
-    for PLUGIN in discord scheduler; do
+    for PLUGIN in ${PLUGINS:-discord scheduler}; do
         if ! claude plugin list 2>/dev/null | grep -qE "^\s*❯?\s*$PLUGIN@vox-plugins\b"; then
             echo "installing $PLUGIN@vox-plugins"
             claude plugin install "$PLUGIN@vox-plugins"
