@@ -123,11 +123,13 @@ Systemd reads this file as plain `KEY=VALUE` lines — no shell expansion.
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `BOT_SESSION_NAME` | no | `<instance>` | `claude --resume <name>` target. Defaults to the instance name; override if you want the service to resume a differently-named session. Must already exist. |
-| `BOT_PLUGINS` | no | `plugin:discord@vox-plugins plugin:scheduler@vox-plugins` | Space-separated specs for `--dangerously-load-development-channels`. Shipped example pre-enables the vox-plugins discord + scheduler plugins; clear the line to disable. |
+| `BOT_PLUGINS` | no | `plugin:discord@vox-plugins plugin:scheduler@vox-plugins` | Space-separated specs for `--dangerously-load-development-channels`. Shipped example pre-enables the vox-plugins discord + scheduler plugins (add `plugin:slack@vox-plugins` for Slack); clear the line to disable. |
 | `SCREEN_SESSION` | no | `claude-discord-<instance>` | Screen session name the wrapper runs under. Default is already unique per instance; override only if you need a specific name. |
 | `ANTHROPIC_MODEL` | no | `claude-opus-4-7[1m]` | Shipped example pins Opus 4.7 (1M-context variant); comment out for the Claude Code default. |
 | `CLAUDE_CODE_SUBAGENT_MODEL` | no | `claude-opus-4-7[1m]` | Shipped example pins Opus 4.7 (1M-context) for subagents too. |
 | `CLAUDE_CODE_EFFORT_LEVEL` | no | `max` | `low` / `medium` / `high` / `max`. |
+| `DISCORD_MESSAGE_LOG` | no | _(off)_ | Absolute path to a JSONL file; the discord plugin appends every authorized message (incl. while dunked) + the bot's own replies (`"out":true`). Unset = no logging. Needs discord plugin ≥ 0.2.30. |
+| `SLACK_MESSAGE_LOG` | no | _(off)_ | Same as `DISCORD_MESSAGE_LOG`, for the Slack channel. Needs slack plugin ≥ 0.1.14. |
 
 See `bot.env.example` for the commented template.
 
