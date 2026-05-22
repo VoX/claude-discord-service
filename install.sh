@@ -76,9 +76,9 @@ else
 fi
 
 # Seed a minimal .claude.json. Without this, claude launched under a fresh
-# CLAUDE_CONFIG_DIR treats the instance as a brand-new user — skips
-# /discord:configure etc. and drops straight to the login picker on the
-# first run. hasCompletedOnboarding=true + lastOnboardingVersion pinned to
+# CLAUDE_CONFIG_DIR treats the instance as a brand-new user — runs the
+# onboarding picker instead of dropping straight to /login on the first
+# run. hasCompletedOnboarding=true + lastOnboardingVersion pinned to
 # the current CLI version is enough to route /login like a normal account.
 # resumeReturnDismissed=true silences the "Resume from summary / full / don't
 # ask again" picker that otherwise blocks headless restart on long sessions.
@@ -187,17 +187,19 @@ fi
 cat <<EOM
 
 Next steps for instance '$INSTANCE':
-  1. Log in to Anthropic and register the Discord bot under the
-     per-instance config dir:
+  1. Log in to Anthropic under the per-instance config dir:
        CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR claude
          > /login
-         > /discord:configure
          > (exit when done)
-  2. Optional: edit $PERSONALITY_DST to give the bot a personality
-  3. Optional: edit $ENV_DST to override defaults (model, plugins, etc.)
-  4. systemctl --user daemon-reload
-  5. systemctl --user enable --now claude-discord@$INSTANCE
-  6. journalctl --user -u claude-discord@$INSTANCE -f
+  2. Uncomment + set the bot token(s) + owner id in $ENV_DST:
+       Discord: DISCORD_BOT_TOKEN=...   DISCORD_OWNER_ID=<your discord user id>
+       Slack:   SLACK_BOT_TOKEN=xoxb-...  SLACK_APP_TOKEN=xapp-...  SLACK_OWNER_ID=<your slack member id>
+     Only the owner can run the /access slash command that authorizes channels + DM users.
+  3. Optional: edit $PERSONALITY_DST to give the bot a personality
+  4. Optional: edit $ENV_DST to override other defaults (model, plugins, etc.)
+  5. systemctl --user daemon-reload
+  6. systemctl --user enable --now claude-discord@$INSTANCE
+  7. journalctl --user -u claude-discord@$INSTANCE -f
 
 Logs stream to $INSTANCE_DIR/logs/claude-discord{,.error}.log as well.
 EOM

@@ -69,19 +69,20 @@ location. If you clone elsewhere, edit the `ExecStart=` path in
    `--resume <instance>` immediately after you log in.
 9. Prints the remaining manual steps.
 
-Then log in and configure the Discord bot under the per-instance config
-dir, and start the service:
+Then log in, set the bot token(s) + owner id, and start the service:
 
 ```bash
-# Log in to Anthropic + register the Discord bot token.
-# CLAUDE_CONFIG_DIR scopes both to the instance's .claude/ folder.
+# Log in to Anthropic. CLAUDE_CONFIG_DIR scopes this to the instance's .claude/.
 CLAUDE_CONFIG_DIR=~/claude-discord/<instance>/.claude claude
   > /login
-  > /discord:configure
   > (exit)
 
-# optional tweaks:
-$EDITOR ~/claude-discord/<instance>/.bot.env                   # override defaults
+# Set the channel token(s) + owner id (only the owner can run /access):
+$EDITOR ~/claude-discord/<instance>/.bot.env
+#   Discord: DISCORD_BOT_TOKEN=…   DISCORD_OWNER_ID=<your discord user id>
+#   Slack:   SLACK_BOT_TOKEN=xoxb-…  SLACK_APP_TOKEN=xapp-…  SLACK_OWNER_ID=<your slack U-id>
+
+# optional:
 $EDITOR ~/claude-discord/<instance>/.claude/CLAUDE.md          # give the bot a personality
 
 systemctl --user daemon-reload
@@ -128,6 +129,11 @@ Systemd reads this file as plain `KEY=VALUE` lines — no shell expansion.
 | `ANTHROPIC_MODEL` | no | `claude-opus-4-7[1m]` | Shipped example pins Opus 4.7 (1M-context variant); comment out for the Claude Code default. |
 | `CLAUDE_CODE_SUBAGENT_MODEL` | no | `claude-opus-4-7[1m]` | Shipped example pins Opus 4.7 (1M-context) for subagents too. |
 | `CLAUDE_CODE_EFFORT_LEVEL` | no | `max` | `low` / `medium` / `high` / `max`. |
+| `DISCORD_BOT_TOKEN` | for Discord | — | Discord bot token (can instead live in the channel state-dir `.env`). |
+| `DISCORD_OWNER_ID` | for `/access` | — | Your Discord user snowflake. Only the owner can run the `/access` slash command that authorizes channels + DM users. |
+| `SLACK_BOT_TOKEN` | for Slack | — | Slack bot token (`xoxb-…`). |
+| `SLACK_APP_TOKEN` | for Slack | — | Slack app-level token (`xapp-…`) for Socket Mode. |
+| `SLACK_OWNER_ID` | for `/access` | — | Your Slack member id (`U…`). Owner-only `/access` gate, same as Discord. |
 | `DISCORD_MESSAGE_LOG` | no | _(off)_ | Absolute path to a JSONL file; the discord plugin appends every authorized message (incl. while dunked) + the bot's own replies (`"out":true`). Unset = no logging. Needs discord plugin ≥ 0.2.30. |
 | `SLACK_MESSAGE_LOG` | no | _(off)_ | Same as `DISCORD_MESSAGE_LOG`, for the Slack channel. Needs slack plugin ≥ 0.1.14. |
 
