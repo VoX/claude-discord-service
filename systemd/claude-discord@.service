@@ -1,13 +1,34 @@
 [Unit]
 Description=Claude Code Discord bot (%i)
 After=network.target
+# Cap the retry storm: if 3 starts inside 60s all fail, give up and mark the
+# unit failed. StartLimitAction=none means "don't try harder via reboot" — we
+# expect a human (or a companion heal timer, see follow-up) to notice the
+# failed state and intervene. Prevents the wrapper-guard-tripping-forever
+# pathology where bad config or a stuck stray claude burns CPU indefinitely.
+# These keys MUST live in [Unit] per systemd docs — [Service] silently ignores
+# them.
+StartLimitBurst=3
+StartLimitInterval=60
+StartLimitAction=none
 
 [Service]
 Type=forking
+# ExecStartPre strips orphaned `thinking`/`redacted_thinking` blocks from the
+# active session transcript before claude --resume replays it — workaround for
+# anthropics/claude-code#63147 which would otherwise 400-loop the resume after
+# any mid-turn interruption. Leading `-` so a sanitizer failure (e.g. permission
+# error) doesn't block service start; the script swallows its own non-fatal
+# exits internally too.
+ExecStartPre=-%h/projects/claude-discord-service/bin/sanitize-pre.sh
 ExecStart=/usr/bin/screen -dmS ${SCREEN_SESSION} %h/projects/claude-discord-service/bin/claude-discord-wrapper.sh
 WorkingDirectory=%h/claude-discord/%i
 Restart=always
-RestartSec=5
+# 15s back-off is slow enough that a persistent fault doesn't hammer the box,
+# fast enough that a transient hiccup recovers without operator intervention.
+# Combined with [Unit] StartLimitBurst=3 / StartLimitInterval=60 above, this
+# gives roughly 3 retries spread over ~45s before the unit goes failed.
+RestartSec=15
 # control-group: SIGTERM every pid in the cgroup (claude + bun MCP children),
 # not just the main screen pid. Ensures MCP servers shut down cleanly on stop
 # instead of getting reparented to pid 1 when the main exits first.
