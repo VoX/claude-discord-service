@@ -1,0 +1,53 @@
+#!/usr/bin/expect -f
+# claude-discord-spawn.expect — spawns `claude --resume <session>` and
+# auto-dismisses the dev-channels warning prompt.
+#
+# Invoked by claude-discord-wrapper.sh after that script has validated the
+# environment and acquired the wrapper flock (fd 9). This file does ONLY the
+# spawn/send/interact dance — no validation, no locking — because the bash
+# wrapper has already done both. fd 9 is inherited via execve and the kernel
+# keeps the lock held for our process lifetime.
+#
+# Env (re-read from $::env since exec preserves the environment):
+#   BOT_SESSION_NAME            required (already validated upstream)
+#   BOT_PLUGINS                 optional space-separated
+#   WARNING_AUTOCONFIRM_SLEEP   seconds to wait before sending Enter to the
+#                               dev-channels prompt; default 8.
+
+set timeout -1
+
+# These should be set by the bash wrapper; double-check just so a hand-run
+# of this file doesn't blow up with a confusing Tcl error.
+if {![info exists ::env(BOT_SESSION_NAME)] || $::env(BOT_SESSION_NAME) eq ""} {
+    puts stderr "claude-discord-spawn: BOT_SESSION_NAME not set in env"
+    exit 2
+}
+
+set args [list --resume $::env(BOT_SESSION_NAME)]
+
+if {[info exists ::env(BOT_PLUGINS)] && $::env(BOT_PLUGINS) ne ""} {
+    lappend args --dangerously-load-development-channels
+    foreach plugin [split $::env(BOT_PLUGINS)] {
+        if {$plugin ne ""} { lappend args $plugin }
+    }
+}
+
+lappend args --dangerously-skip-permissions --permission-mode bypassPermissions
+
+spawn $::env(HOME)/.local/bin/claude {*}$args
+
+# Wait for the TUI to finish rendering the warning prompt, then accept.
+# 3s was too tight under systemd cold-start on the original box — the prompt
+# rendered but send "\r" fired before claude was ready to consume it. 8s is
+# dumb-but-reliable; escape codes make text-matching brittle. Slower boxes
+# (e.g. Strix Halo cold-boot) need 30s — set WARNING_AUTOCONFIRM_SLEEP=30
+# in .bot.env to override.
+set sleep_dur 8
+if {[info exists ::env(WARNING_AUTOCONFIRM_SLEEP)] && $::env(WARNING_AUTOCONFIRM_SLEEP) ne ""} {
+    set sleep_dur $::env(WARNING_AUTOCONFIRM_SLEEP)
+}
+sleep $sleep_dur
+send "\r"
+
+# Hand off to the screen session for the long run.
+interact

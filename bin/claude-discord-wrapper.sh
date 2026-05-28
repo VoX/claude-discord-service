@@ -1,60 +1,62 @@
-#!/usr/bin/expect -f
-# Wrapper for the claude-discord systemd service.
+#!/bin/bash
+# Wrapper entrypoint for the claude-discord systemd service.
 #
-# Runs `claude` under a screen session with the right flags, then sends Enter
-# once to auto-accept the "development channels" warning prompt. Escape codes
-# in the TUI make reliable text-matching unreliable, so we use a timed send.
+# Validates the per-instance config, acquires an exclusive flock so two
+# wrappers can't race the same `claude --resume <session>` transcript, then
+# execs the expect helper that does the actual spawn + dev-channels-warning
+# auto-confirm dance.
 #
-# Config comes from the environment (populated by systemd via ~/.bot.env):
+# The lock (fd 9 → $CLAUDE_CONFIG_DIR/wrapper.lock) is held for the entire
+# lifetime of the wrapper. `exec expect …` replaces this bash process with
+# expect, which inherits fd 9 via execve and keeps the lock held until it
+# itself exits (i.e. until claude exits). Two-second flock check, no retry —
+# systemd Restart=always handles re-launch; the unit's StartLimit caps the
+# retry storm if the lock contention is persistent.
 #
-#   BOT_SESSION_NAME  required  claude --resume session name
-#   BOT_PLUGINS       optional  space-separated plugin specs for
-#                               --dangerously-load-development-channels
-#                               e.g. "plugin:discord@vox-plugins plugin:scheduler@vox-plugins"
+# Config (from systemd Environment= / EnvironmentFile=~/.bot.env):
 #
-# Exits 2 if BOT_SESSION_NAME isn't set — a misconfigured env should fail
-# fast, not silently spawn an anonymous claude session.
+#   BOT_SESSION_NAME            required  claude --resume session name
+#   BOT_PLUGINS                 optional  space-separated plugin specs
+#   WARNING_AUTOCONFIRM_SLEEP   optional  seconds before sending Enter to
+#                                         dismiss the dev-channels prompt
+#                                         (default 8; bump to 30 on slow
+#                                          cold-boot boxes like Strix Halo)
+#   CLAUDE_CONFIG_DIR           optional  defaults to ~/.claude; used for
+#                                         the lockfile location
 
-set timeout -1
+set -euo pipefail
 
-if {![info exists ::env(BOT_SESSION_NAME)] || $::env(BOT_SESSION_NAME) eq ""} {
-    puts stderr "claude-discord-wrapper: BOT_SESSION_NAME is required (set it in ~/.bot.env)"
-    exit 2
-}
+# Fail fast on missing session name.
+: "${BOT_SESSION_NAME:?BOT_SESSION_NAME required — set it in ~/.bot.env}"
 
-# Duplicate-session guard. If a `claude --resume <BOT_SESSION_NAME>` is already
-# running (typically a stray manual launch outside the systemd cgroup, which
-# KillMode=control-group can't clean up), refuse to spawn a second one. Two
-# concurrent claudes against the same session race the transcript .jsonl —
-# both write, both replay, mutual orphan-block production. Caught 2026-05-28
-# when tinydos had a manual screen from May 27 coexisting with the systemd
-# one for 24+ hours; the resulting transcript-race plausibly contributed to
-# the thinking-block accumulation that wedged her.
-set existing [exec sh -c "pgrep -f \"^/.*/claude --resume $::env(BOT_SESSION_NAME) \" || true"]
-if {$existing ne ""} {
-    puts stderr "claude-discord-wrapper: claude --resume $::env(BOT_SESSION_NAME) already running (pid $existing), refusing to spawn duplicate"
-    exit 2
-}
+# Validate the session name. We splat it into argv, into a lockfile path, and
+# (downstream in expect) into a Tcl string — the safest answer is to reject
+# anything that isn't ASCII alphanumeric plus `_.-`. Anything weirder than
+# that has no business being a claude session name anyway.
+if [[ ! "$BOT_SESSION_NAME" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "claude-discord-wrapper: BOT_SESSION_NAME must match ^[A-Za-z0-9._-]+\$, got '$BOT_SESSION_NAME'" >&2
+  exit 2
+fi
 
-set args [list --resume $::env(BOT_SESSION_NAME)]
+# Acquire exclusive non-blocking flock. The fd is held for our process
+# lifetime; on exec'ing into expect below, expect inherits the open fd and
+# the kernel keeps the lock for the inheriting process. When expect exits,
+# the kernel closes its fds and the lock is released — next wrapper start
+# can claim it.
+LOCK_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+mkdir -p "$LOCK_DIR"
+LOCKFILE="$LOCK_DIR/wrapper.lock"
+exec 9>"$LOCKFILE"
+if ! flock -n 9; then
+  # Record who holds it for diagnostics — best-effort, may race.
+  HOLDER="$(cat "$LOCKFILE" 2>/dev/null || true)"
+  echo "claude-discord-wrapper: $LOCKFILE held — refusing to spawn duplicate ($HOLDER)" >&2
+  exit 2
+fi
+# Stamp the lockfile so the next wrapper's diagnostic message names us.
+printf 'pid=%s host=%s ts=%s\n' "$$" "$(hostname)" "$(date -u +%FT%TZ)" >&9
 
-if {[info exists ::env(BOT_PLUGINS)] && $::env(BOT_PLUGINS) ne ""} {
-    lappend args --dangerously-load-development-channels
-    foreach plugin [split $::env(BOT_PLUGINS)] {
-        if {$plugin ne ""} { lappend args $plugin }
-    }
-}
-
-lappend args --dangerously-skip-permissions --permission-mode bypassPermissions
-
-spawn $::env(HOME)/.local/bin/claude {*}$args
-
-# Wait for the TUI to finish rendering the warning prompt, then accept.
-# 3s was too tight under systemd cold-start on this box — the prompt rendered
-# but send "\r" fired before claude was ready to consume it. 8s is dumb but
-# reliable; escape codes make text-matching brittle.
-sleep 8
-send "\r"
-
-# Hand off to the screen session for the long run.
-interact
+# Hand off to the expect spawn helper. fd 9 (the lock) is preserved across
+# exec, so the lock stays held until the expect process (and the claude it
+# spawns + interacts with) exits.
+exec /usr/bin/expect -f "$(dirname "$0")/claude-discord-spawn.expect"
