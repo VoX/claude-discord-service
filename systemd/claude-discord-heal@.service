@@ -1,0 +1,25 @@
+[Unit]
+Description=Heal companion for claude-discord@%i — resets failed state and retries start
+# If the main unit is currently running, this service is a no-op (the ExecStart
+# step is a `systemctl start` which silently no-ops on already-active units).
+# If the main unit is in failed state (3 fast retries exhausted via the main
+# unit's StartLimit), this clears the limit window and tries again — picking
+# up any transient fault that's since resolved.
+After=network.target
+
+[Service]
+Type=oneshot
+# Gate: only do work if the main unit is genuinely failed. Otherwise exit
+# clean — no point in calling reset-failed + start on a healthy unit.
+# `is-failed` returns 0 when failed, non-zero otherwise; we negate so the
+# guard exits 0 (skip rest of service) on the healthy case.
+ExecStartPre=/bin/sh -c 'systemctl --user is-failed claude-discord@%i || exit 0; systemctl --user reset-failed claude-discord@%i'
+ExecStart=/usr/bin/systemctl --user start claude-discord@%i
+# Don't propagate the reset-failed/start exit code as a heal-svc failure —
+# either it worked (main unit's StartLimit window resets and it tries again),
+# or it didn't (main unit goes failed again, next heal-timer fire tries
+# again). Either way the heal-svc itself succeeded at "attempting the heal."
+SuccessExitStatus=0 1
+
+[Install]
+WantedBy=default.target

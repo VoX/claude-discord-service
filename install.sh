@@ -45,7 +45,32 @@ fi
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 UNIT_SRC="$REPO_DIR/systemd/claude-discord@.service"
 UNIT_DST="$HOME/.config/systemd/user/claude-discord@.service"
+HEAL_SVC_SRC="$REPO_DIR/systemd/claude-discord-heal@.service"
+HEAL_SVC_DST="$HOME/.config/systemd/user/claude-discord-heal@.service"
+HEAL_TIMER_SRC="$REPO_DIR/systemd/claude-discord-heal@.timer"
+HEAL_TIMER_DST="$HOME/.config/systemd/user/claude-discord-heal@.timer"
 ENV_SRC="$REPO_DIR/bot.env.example"
+
+# Helper: symlink-or-replace. Backs up an existing file/symlink before
+# clobbering, no-ops if the target already points at the right source.
+link_unit() {
+    local src="$1" dst="$2"
+    if [[ -L "$dst" || -f "$dst" ]]; then
+        local existing
+        existing="$(readlink -f "$dst" 2>/dev/null || echo "$dst")"
+        if [[ "$existing" == "$src" ]]; then
+            echo "unit already points at $src"
+            return
+        fi
+        local backup="$dst.bak.$(date -u +%Y%m%dT%H%M%SZ)"
+        mv "$dst" "$backup"
+        ln -s "$src" "$dst"
+        echo "replaced existing unit (backed up to $backup): $dst -> $src"
+        return
+    fi
+    ln -s "$src" "$dst"
+    echo "linked unit: $dst -> $src"
+}
 
 INSTANCE_DIR="$HOME/claude-discord/$INSTANCE"
 ENV_DST="$INSTANCE_DIR/.bot.env"
@@ -100,20 +125,9 @@ else
     echo "$CLAUDE_JSON_DST already exists — leaving it alone"
 fi
 
-if [[ -L "$UNIT_DST" || -f "$UNIT_DST" ]]; then
-    existing="$(readlink -f "$UNIT_DST" 2>/dev/null || echo "$UNIT_DST")"
-    if [[ "$existing" == "$UNIT_SRC" ]]; then
-        echo "template unit already points at $UNIT_SRC"
-    else
-        backup="$UNIT_DST.bak.$(date -u +%Y%m%dT%H%M%SZ)"
-        mv "$UNIT_DST" "$backup"
-        ln -s "$UNIT_SRC" "$UNIT_DST"
-        echo "replaced existing template unit (backed up to $backup)"
-    fi
-else
-    ln -s "$UNIT_SRC" "$UNIT_DST"
-    echo "linked template unit: $UNIT_DST -> $UNIT_SRC"
-fi
+link_unit "$UNIT_SRC" "$UNIT_DST"
+link_unit "$HEAL_SVC_SRC" "$HEAL_SVC_DST"
+link_unit "$HEAL_TIMER_SRC" "$HEAL_TIMER_DST"
 
 if [[ ! -e "$ENV_DST" ]]; then
     cp "$ENV_SRC" "$ENV_DST"
@@ -199,7 +213,9 @@ Next steps for instance '$INSTANCE':
   4. Optional: edit $ENV_DST to override other defaults (model, plugins, etc.)
   5. systemctl --user daemon-reload
   6. systemctl --user enable --now claude-discord@$INSTANCE
-  7. journalctl --user -u claude-discord@$INSTANCE -f
+  7. systemctl --user enable --now claude-discord-heal@$INSTANCE.timer
+       (fires every 10 min; pokes the main unit if it's in 'failed' state)
+  8. journalctl --user -u claude-discord@$INSTANCE -f
 
 Logs stream to $INSTANCE_DIR/logs/claude-discord{,.error}.log as well.
 EOM

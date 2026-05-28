@@ -1,0 +1,29 @@
+[Unit]
+Description=Periodic heal-timer for claude-discord@%i — pokes the main unit if it's failed
+# Pairs with claude-discord-heal@%i.service. When the main unit hits its
+# StartLimit (3 fast retries inside 60s), it goes failed and stops trying.
+# This timer fires every 10 min and runs the heal-svc, which checks if the
+# main unit is failed and, if so, resets the limit + starts again. Lets
+# persistent-but-eventually-fixable faults (BE down, transcript poison the
+# sanitizer somehow missed) recover on their own without manual intervention.
+
+[Timer]
+# Fire on a 10-minute wall-clock cadence rather than OnUnitInactiveSec —
+# OnUnitInactiveSec is reset every time the heal-svc finishes (which it
+# does in <1s), so it'd effectively fire every 10s. OnCalendar is the
+# right primitive for "every 10 min, regardless of last fire."
+OnCalendar=*:0/10
+# Also fire 1 min after boot so a freshly-booted box doesn't wait 10 min
+# before the first heal attempt.
+OnBootSec=1min
+# AccuracySec — systemd is allowed to batch the fire within this window.
+# 30s is fine; we don't need second-precision for a self-heal trigger.
+AccuracySec=30s
+# Persistent ensures missed fires (box was off when 10:00 came around) fire
+# on next boot — important so a long downtime doesn't leave the bot offline
+# until the next aligned 10-min mark.
+Persistent=true
+Unit=claude-discord-heal@%i.service
+
+[Install]
+WantedBy=timers.target
