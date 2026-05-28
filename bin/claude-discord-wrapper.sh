@@ -22,6 +22,20 @@ if {![info exists ::env(BOT_SESSION_NAME)] || $::env(BOT_SESSION_NAME) eq ""} {
     exit 2
 }
 
+# Duplicate-session guard. If a `claude --resume <BOT_SESSION_NAME>` is already
+# running (typically a stray manual launch outside the systemd cgroup, which
+# KillMode=control-group can't clean up), refuse to spawn a second one. Two
+# concurrent claudes against the same session race the transcript .jsonl —
+# both write, both replay, mutual orphan-block production. Caught 2026-05-28
+# when tinydos had a manual screen from May 27 coexisting with the systemd
+# one for 24+ hours; the resulting transcript-race plausibly contributed to
+# the thinking-block accumulation that wedged her.
+set existing [exec sh -c "pgrep -f \"^/.*/claude --resume $::env(BOT_SESSION_NAME) \" || true"]
+if {$existing ne ""} {
+    puts stderr "claude-discord-wrapper: claude --resume $::env(BOT_SESSION_NAME) already running (pid $existing), refusing to spawn duplicate"
+    exit 2
+}
+
 set args [list --resume $::env(BOT_SESSION_NAME)]
 
 if {[info exists ::env(BOT_PLUGINS)] && $::env(BOT_PLUGINS) ne ""} {
