@@ -1,29 +1,51 @@
 #!/usr/bin/expect -f
-# claude-discord-spawn.expect — spawns `claude --resume <session>` and
-# auto-dismisses the dev-channels warning prompt.
+# claude-discord-spawn.expect — spawns `claude` (optionally --resume <session>)
+# and auto-accepts the dev-channels confirmation prompt.
 #
-# Invoked by claude-discord-wrapper.sh after that script has validated the
-# environment and acquired the wrapper flock (fd 9). This file does ONLY the
+# Usually invoked by claude-discord-wrapper.sh after that script has validated
+# the environment and acquired the wrapper flock (fd 9); this file does ONLY the
 # spawn/send/interact dance — no validation, no locking — because the bash
 # wrapper has already done both. fd 9 is inherited via execve and the kernel
-# keeps the lock held for our process lifetime.
+# keeps the lock held for our process lifetime. It can also be invoked directly
+# (e.g. dweller) for a sessionless bot that doesn't need the resume-race flock.
 #
 # Env (re-read from $::env since exec preserves the environment):
-#   BOT_SESSION_NAME            required (already validated upstream)
-#   BOT_PLUGINS                 optional space-separated
-#   WARNING_AUTOCONFIRM_SLEEP   seconds to wait before sending Enter to the
-#                               dev-channels prompt; default 8.
+#   BOT_SESSION_NAME            optional; if set, claude resumes that session
+#                               (--resume). Required+validated upstream when run
+#                               via the bash wrapper; leave unset to start a
+#                               fresh session each launch (sessionless).
+#   BOT_EXTRA_ARGS              optional space-separated args passed verbatim to
+#                               claude before the plugin flags (e.g. "--add-dir
+#                               /path"). No spaces inside an individual arg.
+#   BOT_PLUGINS                 optional space-separated; presence is what adds
+#                               --dangerously-load-development-channels (and thus
+#                               produces the confirmation prompt we wait for)
+#   WARNING_AUTOCONFIRM_TIMEOUT optional seconds to wait for the prompt text
+#                               before blind-sending Enter as a fallback (default
+#                               120). Replaces the old fixed-timer scheme.
+#   SPAWN_DEBUG_LOG             optional path; if set, the spawn output up to the
+#                               interact handoff is tee'd here for debugging.
+#
+# NOTE: WARNING_AUTOCONFIRM_SLEEP (the old fixed pre-Enter delay) is no longer
+# used — see the prompt-wait block below for why.
 
 set timeout -1
 
-# These should be set by the bash wrapper; double-check just so a hand-run
-# of this file doesn't blow up with a confusing Tcl error.
-if {![info exists ::env(BOT_SESSION_NAME)] || $::env(BOT_SESSION_NAME) eq ""} {
-    puts stderr "claude-discord-spawn: BOT_SESSION_NAME not set in env"
-    exit 2
+set args [list]
+
+# Resume a named session if one is configured; otherwise start fresh. The bash
+# wrapper validates BOT_SESSION_NAME for instances that use it (tinyclaw);
+# sessionless callers (dweller) simply leave it unset.
+if {[info exists ::env(BOT_SESSION_NAME)] && $::env(BOT_SESSION_NAME) ne ""} {
+    lappend args --resume $::env(BOT_SESSION_NAME)
 }
 
-set args [list --resume $::env(BOT_SESSION_NAME)]
+# Verbatim extra args (e.g. --add-dir <path>), space-split.
+if {[info exists ::env(BOT_EXTRA_ARGS)] && $::env(BOT_EXTRA_ARGS) ne ""} {
+    foreach a [split $::env(BOT_EXTRA_ARGS)] {
+        if {$a ne ""} { lappend args $a }
+    }
+}
 
 if {[info exists ::env(BOT_PLUGINS)] && $::env(BOT_PLUGINS) ne ""} {
     lappend args --dangerously-load-development-channels
@@ -36,18 +58,65 @@ lappend args --dangerously-skip-permissions --permission-mode bypassPermissions
 
 spawn $::env(HOME)/.local/bin/claude {*}$args
 
-# Wait for the TUI to finish rendering the warning prompt, then accept.
-# 3s was too tight under systemd cold-start on the original box — the prompt
-# rendered but send "\r" fired before claude was ready to consume it. 8s is
-# dumb-but-reliable; escape codes make text-matching brittle. Slower boxes
-# (e.g. Strix Halo cold-boot) need 30s — set WARNING_AUTOCONFIRM_SLEEP=30
-# in .bot.env to override.
-set sleep_dur 8
-if {[info exists ::env(WARNING_AUTOCONFIRM_SLEEP)] && $::env(WARNING_AUTOCONFIRM_SLEEP) ne ""} {
-    set sleep_dur $::env(WARNING_AUTOCONFIRM_SLEEP)
+# Optional: tee spawn output to a file up to the interact handoff (debugging the
+# prompt match). Off unless SPAWN_DEBUG_LOG is set.
+if {[info exists ::env(SPAWN_DEBUG_LOG)] && $::env(SPAWN_DEBUG_LOG) ne ""} {
+    log_file -a $::env(SPAWN_DEBUG_LOG)
 }
-sleep $sleep_dur
-send "\r"
 
-# Hand off to the screen session for the long run.
+# Accept the dev-channels confirmation prompt by WAITING FOR ITS TEXT, then
+# sending Enter — instead of a fixed timer. The old approach slept a fixed
+# WARNING_AUTOCONFIRM_SLEEP and blind-sent Enter; that raced the prompt on slow
+# (large-transcript) startups — the Enter mistimed and the discord/slack/
+# scheduler channels silently failed to load (claude still reached its ready
+# prompt, just with no channel servers). The prompt only appears when we asked
+# for dev-channels (BOT_PLUGINS set), and looks like:
+#       1. I am using this for local development
+#       2. Exit
+#     Enter to confirm · Esc to cancel
+# IMPORTANT: the TUI positions every word with absolute cursor-move escapes
+# (e.g. "Enter\x1b[9Gto\x1b[12Gconfirm"), so multi-word substrings like
+# "Enter to confirm" DO NOT exist contiguously in the byte stream and never
+# match. Individual words ARE contiguous, so we anchor on single distinctive
+# words from the footer ("confirm"/"cancel"). The footer renders last, so
+# seeing it means the whole select menu is up; and the prompt is shown before
+# the session transcript is replayed, so these words can't collide with chat
+# history. If a match is somehow missed, the timeout still blind-sends Enter.
+if {[info exists ::env(BOT_PLUGINS)] && $::env(BOT_PLUGINS) ne ""} {
+    # Bound the wait so a renamed/absent prompt can't wedge startup forever. On
+    # timeout we still send Enter (degrades to the old blind-accept) instead of
+    # hanging. Bump WARNING_AUTOCONFIRM_TIMEOUT on a very slow box.
+    set confirm_timeout 120
+    if {[info exists ::env(WARNING_AUTOCONFIRM_TIMEOUT)] && $::env(WARNING_AUTOCONFIRM_TIMEOUT) ne ""} {
+        set confirm_timeout $::env(WARNING_AUTOCONFIRM_TIMEOUT)
+    }
+    set timeout $confirm_timeout
+    expect {
+        -ex "confirm" {
+            # Footer ("Enter to confirm") rendered; settle, then accept (the
+            # default-selected option is "I am using this for local development").
+            sleep 1
+            send "\r"
+        }
+        -ex "cancel" {
+            sleep 1
+            send "\r"
+        }
+        timeout {
+            puts stderr "claude-discord-spawn: dev-channels prompt text not seen in ${confirm_timeout}s; blind-sending Enter as fallback"
+            send "\r"
+        }
+        eof {
+            puts stderr "claude-discord-spawn: claude exited before the dev-channels prompt appeared"
+            exit 1
+        }
+    }
+}
+
+# Stop teeing (if we were) and restore the infinite timeout for the long-running
+# interact handoff to the screen session.
+if {[info exists ::env(SPAWN_DEBUG_LOG)] && $::env(SPAWN_DEBUG_LOG) ne ""} {
+    log_file
+}
+set timeout -1
 interact

@@ -17,10 +17,12 @@
 #
 #   BOT_SESSION_NAME            required  claude --resume session name
 #   BOT_PLUGINS                 optional  space-separated plugin specs
-#   WARNING_AUTOCONFIRM_SLEEP   optional  seconds before sending Enter to
-#                                         dismiss the dev-channels prompt
-#                                         (default 8; bump to 30 on slow
-#                                          cold-boot boxes like Strix Halo)
+#   BOT_EXTRA_ARGS              optional  verbatim extra claude args (e.g.
+#                                         "--add-dir /path"); see spawn.expect
+#   WARNING_AUTOCONFIRM_TIMEOUT optional  seconds to wait for the dev-channels
+#                                         prompt text before a fallback Enter
+#                                         (default 120; the spawn helper now
+#                                          waits on the prompt, not a fixed timer)
 #   CLAUDE_CONFIG_DIR           optional  defaults to ~/.claude; used for
 #                                         the lockfile location
 
