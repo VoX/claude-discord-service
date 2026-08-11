@@ -61,6 +61,12 @@ Environment=CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1
 Environment=CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1
 Environment=CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
 Environment=DISABLE_COST_WARNINGS=1
+# Fullscreen (alt-screen) renderer. NOTE: this must stay in step with the `tui`
+# key install.sh seeds into the instance's settings.json ("fullscreen"). That key
+# is not cosmetic — it is what stops 2.1.223+ showing a "Try the new fullscreen
+# renderer?" dialog at startup, which WEDGES a headless bot dead (the spawn helper
+# answers only one confirm prompt and spends it on the dev-channels dialog).
+# Change one and you must change the other, or the bot silently switches renderer.
 Environment=CLAUDE_CODE_NO_FLICKER=1
 # Disable TUI mouse capture. Fullscreen rendering (NO_FLICKER) otherwise enables SGR
 # mouse reporting, whose sequences leak into the `screen` pane as literal coordinate

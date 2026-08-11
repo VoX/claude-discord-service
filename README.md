@@ -53,7 +53,13 @@ location. If you clone elsewhere, edit the `ExecStart=` path in
    `--add-dir` plumbing.
 5. Seeds `~/claude-discord/<instance>/.claude/settings.json` with
    `skipDangerousModePermissionPrompt: true` so the TUI accepts the
-   dev-channels warning under systemd.
+   dev-channels warning under systemd, and `tui: "fullscreen"` so it never
+   asks which renderer to use. That second key is load-bearing: 2.1.223+
+   shows a "Try the new fullscreen renderer?" dialog at startup and a
+   headless bot wedges on it forever. The gate is
+   `if (settings.tui !== undefined) return false`, so any value suppresses
+   it — use the one matching your instance (`fullscreen` pairs with the
+   unit's `CLAUDE_CODE_NO_FLICKER=1`; drop to `default` without it).
 6. Seeds `~/claude-discord/<instance>/.claude/.claude.json` with
    `hasCompletedOnboarding: true` (plus `lastOnboardingVersion` pinned to
    the current `claude --version`) so the first `claude` launch under the
@@ -100,7 +106,7 @@ Each instance gets its own folder:
 ├── .claude/                 # per-instance CLAUDE_CONFIG_DIR — fully
 │   │                        #   isolated from the user's own ~/.claude/
 │   ├── CLAUDE.md            # personality + comms rules (auto-loaded)
-│   ├── settings.json        # skipDangerousModePermissionPrompt
+│   ├── settings.json        # skipDangerousModePermissionPrompt + tui
 │   ├── .claude.json         # onboarding-bypass markers
 │   ├── .credentials.json    # Anthropic OAuth tokens (written by /login)
 │   ├── channels/            # discord token + allowlist + scheduler jobs

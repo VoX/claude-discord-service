@@ -83,16 +83,35 @@ mkdir -p "$HOME/.config/systemd/user" \
          "$INSTANCE_DIR/logs" \
          "$CLAUDE_CONFIG_DIR"
 
-# Seed a minimal settings.json. The only thing we set is
-# skipDangerousModePermissionPrompt — lets the TUI accept the
-# --dangerously-load-development-channels prompt under systemd without
-# a blocking confirmation. Plugin enables + marketplace entries get
-# written by the `claude plugin` CLI further down.
+# Seed a minimal settings.json. Two keys, both about not blocking a headless
+# start on a dialog nobody can answer:
+#
+#   skipDangerousModePermissionPrompt — lets the TUI accept the
+#     --dangerously-load-development-channels prompt under systemd without
+#     a blocking confirmation.
+#
+#   tui — pins the renderer, and MORE IMPORTANTLY stops Claude Code asking about
+#     it. 2.1.223+ shows a "Try the new fullscreen renderer?" dialog on startup,
+#     and the gate is literally `if (settings.tui !== undefined) return false` —
+#     so having ANY opinion suppresses it forever. Without this the bot boots
+#     straight into a modal and sits there: process alive, gateway maybe up,
+#     nothing working. The spawn helper cannot save you, because it answers
+#     exactly ONE confirm prompt and spends it on the dev-channels dialog.
+#     (Diagnosed on dweller 2026-08-11 after a 2.1.197 -> 2.1.227 update.)
+#
+#     "fullscreen" is chosen to MATCH the unit's CLAUDE_CODE_NO_FLICKER=1 — the
+#     schema says the two are equivalent. Pick the value your instance already
+#     behaves like: suppressing a prompt should not quietly switch renderers.
+#     An instance without NO_FLICKER wants "default" instead.
+#
+# Plugin enables + marketplace entries get written by the `claude plugin` CLI
+# further down.
 SETTINGS_DST="$CLAUDE_CONFIG_DIR/settings.json"
 if [[ ! -e "$SETTINGS_DST" ]]; then
     cat > "$SETTINGS_DST" <<'JSON'
 {
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "tui": "fullscreen"
 }
 JSON
     echo "seeded $SETTINGS_DST"
