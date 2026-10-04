@@ -20,6 +20,13 @@ Type=forking
 # any mid-turn interruption. Leading `-` so a sanitizer failure (e.g. permission
 # error) doesn't block service start; the script swallows its own non-fatal
 # exits internally too.
+#
+# Before that, drop_flagged_turn.py rewinds the session past a turn the
+# model's safeguards refused, when the StopFailure hook (on_stop_failure.py,
+# wired in each bot's settings.json) left a flagged-turn.request marker and
+# restarted the unit. No marker = silent no-op, so a normal restart never
+# rewinds anything. Append-only: it adds a /rewind-style last-prompt entry.
+ExecStartPre=-/usr/bin/python3 %h/projects/claude-discord-service/bin/drop_flagged_turn.py --from-marker
 ExecStartPre=-%h/projects/claude-discord-service/bin/sanitize-pre.sh
 ExecStart=/usr/bin/screen -dmS ${SCREEN_SESSION} %h/projects/claude-discord-service/bin/claude-discord-wrapper.sh
 WorkingDirectory=%h/claude-discord/%i
