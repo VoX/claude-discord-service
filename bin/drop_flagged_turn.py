@@ -31,7 +31,7 @@ Usage:
     drop_flagged_turn.py --from-marker          (ExecStartPre)
 
 --from-marker reads $CLAUDE_CONFIG_DIR/flagged-turn.request, written by the
-on_stop_failure.py hook, and is a silent no-op when there is no marker. That
+on_stop_failure.py hook, and is a silent no-op (exit 0) when there is no marker. That
 keeps the rewind tied to an observed refusal rather than to every restart.
 It also queues a one-shot scheduler on_startup note so the bot knows which
 inbound message it lost. The note carries only the message's ids, never its
@@ -298,7 +298,9 @@ def from_marker():
         with open(marker) as f:
             request = json.load(f)
     except FileNotFoundError:
-        return 1
+        # The normal case on every restart; exit 0 so `systemctl status`
+        # doesn't show the ExecStartPre as FAILURE on each boot.
+        return 0
     except ValueError as err:
         log(f"bad marker, removing: {err}")
         os.unlink(marker)
