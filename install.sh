@@ -126,6 +126,10 @@ fi
 # the current CLI version is enough to route /login like a normal account.
 # resumeReturnDismissed=true silences the "Resume from summary / full / don't
 # ask again" picker that otherwise blocks headless restart on long sessions.
+# projects.<instance dir>.hasTrustDialogAccepted=true pre-answers the "Is this a
+# project you trust?" dialog. Its default is "No, exit", and the spawn helper's
+# Enter (meant for the dev-channels prompt) lands on it, so a fresh instance
+# exits ~2s after every start until the restart limit trips (sinoclaw, 2026-10-14).
 CLAUDE_JSON_DST="$CLAUDE_CONFIG_DIR/.claude.json"
 if [[ ! -e "$CLAUDE_JSON_DST" ]]; then
     CLAUDE_VERSION="$(claude --version 2>/dev/null | awk '{print $1}' || true)"
@@ -135,7 +139,13 @@ if [[ ! -e "$CLAUDE_JSON_DST" ]]; then
   "hasCompletedOnboarding": true,
   "lastOnboardingVersion": "$CLAUDE_VERSION",
   "firstStartTime": "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)",
-  "resumeReturnDismissed": true
+  "resumeReturnDismissed": true,
+  "projects": {
+    "$INSTANCE_DIR": {
+      "allowedTools": [],
+      "hasTrustDialogAccepted": true
+    }
+  }
 }
 JSON
     chmod 600 "$CLAUDE_JSON_DST"
