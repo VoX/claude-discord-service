@@ -52,7 +52,7 @@ import time
 MARKER_NAME = "flagged-turn.request"
 LOG_NAME = "flagged-turn.log"
 MAX_DROPPED_TURNS = 5
-MAX_DROPPED_ENTRIES = 400
+MAX_DROPPED_ENTRIES = 1000
 TAIL_START = 8 << 20
 
 CHAIN_TYPES = ("user", "assistant", "system", "attachment", "progress")
@@ -137,7 +137,7 @@ class Plan:
         self.dropped_inbound = []
 
 
-def analyze(entries, reached_start):
+def analyze(entries, reached_start, force=False):
     """Returns (status, plan_or_reason). status: 'cut' | 'noop' | 'refuse' | 'more'."""
     by_uuid = {e["uuid"]: e for e in entries if is_chain(e)}
     leaf = find_leaf(entries)
@@ -169,10 +169,11 @@ def analyze(entries, reached_start):
             plan.turns += 1
             plan.entries += turn_len
             head, turn_len = None, 0
-            if plan.turns > MAX_DROPPED_TURNS:
-                return "refuse", f"more than {MAX_DROPPED_TURNS} refused turns in a row"
-            if plan.entries > MAX_DROPPED_ENTRIES:
-                return "refuse", f"refused turns span more than {MAX_DROPPED_ENTRIES} entries"
+            if not force:
+                if plan.turns > MAX_DROPPED_TURNS:
+                    return "refuse", f"more than {MAX_DROPPED_TURNS} refused turns in a row"
+                if plan.entries > MAX_DROPPED_ENTRIES:
+                    return "refuse", f"refused turns span more than {MAX_DROPPED_ENTRIES} entries"
         turn_len += 1
 
         if head is None and is_message(e):
@@ -187,14 +188,14 @@ def analyze(entries, reached_start):
             attrs = channel_attrs(e)
             if attrs:
                 plan.dropped_inbound.append(attrs)
-        cur = e.get("parentUuid")
+        cur = e.get("parentUuid") or e.get("logicalParentUuid")
 
 
-def plan_for(path):
+def plan_for(path, force=False):
     nbytes = TAIL_START
     while True:
         entries, reached_start = read_tail(path, nbytes)
-        status, result = analyze(entries, reached_start)
+        status, result = analyze(entries, reached_start, force=force)
         if status != "more":
             return status, result
         nbytes *= 4
@@ -213,7 +214,11 @@ def append_rewind(path, plan):
         else:
             needs_newline = False
         f.seek(0, os.SEEK_END)
-        f.write((b"\n" if needs_newline else b"") + json.dumps(entry).encode() + b"\n")
+        # Compact separators are load-bearing: Claude Code's transcript loader
+        # finds last-prompt entries by matching the raw bytes
+        # `{"type":"last-prompt"`, so json.dumps' default `": "` spacing makes
+        # the rewind invisible to --resume and the bot resumes the refused leaf.
+        f.write((b"\n" if needs_newline else b"") + json.dumps(entry, separators=(",", ":")).encode() + b"\n")
         f.flush()
         os.fsync(f.fileno())
 
@@ -268,8 +273,8 @@ def record(config_dir, path, status, detail):
         log(f"could not write {LOG_NAME}: {err}")
 
 
-def run(path, config_dir, dry_run=False, notify=False):
-    status, result = plan_for(path)
+def run(path, config_dir, dry_run=False, notify=False, force=False):
+    status, result = plan_for(path, force=force)
     if status != "cut":
         log(f"{status}: {result}")
         if config_dir:
@@ -319,11 +324,20 @@ def from_marker():
 def main(argv):
     if argv[1:] == ["--from-marker"]:
         return from_marker()
-    args = [a for a in argv[1:] if a != "--dry-run"]
+    dry_run = "--dry-run" in argv
+    force = "--force" in argv
+    notify = "--no-notify" not in argv
+    args = [a for a in argv[1:] if a not in ("--dry-run", "--force", "--no-notify")]
     if len(args) != 1 or not os.path.isfile(args[0]):
         print(__doc__, file=sys.stderr)
         return 2
-    return run(os.path.realpath(args[0]), None, dry_run="--dry-run" in argv)
+    path = os.path.realpath(args[0])
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+    if not config_dir:
+        m = re.search(r"(.*?/\.claude)(?:/|$)", path)
+        if m:
+            config_dir = m.group(1)
+    return run(path, config_dir, dry_run=dry_run, force=force, notify=notify)
 
 
 if __name__ == "__main__":
