@@ -26,8 +26,21 @@ refusal, so a bot that already moved on is left alone.
 
 It only drops. It never re-sends, rewords, or retries the refused message.
 
+Overflow mode (--overflow, or a marker with "mode": "overflow"): the same
+rewind for a session that outgrew the model's context window. A turn that
+fails on an API error (quota 429s, outages) still leaves its inbound message
+on the chain, so every later turn re-sends it, and a long outage piles up
+messages until the context is larger than the window. From then on every
+turn fails "Prompt is too long", and auto-compaction cannot rescue it
+because compaction sends the whole context too (sinoclaw, 2026-10-15..22:
+5,668 failed turns over six days of z.ai quota exhaustion). Here a dropped
+turn is any turn whose newest entry is an API error, of any kind, and there
+is no turn cap: the failed turns ARE the overflow. The new leaf is the last
+turn that got an answer, a context the API already accepted. It refuses to
+walk past a compaction, since the pre-compaction chain is the large one.
+
 Usage:
-    drop_flagged_turn.py <transcript.jsonl> [--dry-run]
+    drop_flagged_turn.py <transcript.jsonl> [--dry-run] [--overflow]
     drop_flagged_turn.py --from-marker          (ExecStartPre)
 
 --from-marker reads $CLAUDE_CONFIG_DIR/flagged-turn.request, written by the
@@ -53,6 +66,8 @@ MARKER_NAME = "flagged-turn.request"
 LOG_NAME = "flagged-turn.log"
 MAX_DROPPED_TURNS = 5
 MAX_DROPPED_ENTRIES = 1000
+MAX_LISTED_INBOUND = 10
+MODES = ("refusal", "overflow")
 TAIL_START = 8 << 20
 
 CHAIN_TYPES = ("user", "assistant", "system", "attachment", "progress")
@@ -79,6 +94,20 @@ def is_refusal(e):
     msg = e.get("message") or {}
     return (e.get("type") == "assistant" and e.get("isApiErrorMessage") is True
             and msg.get("stop_reason") == "refusal")
+
+
+def is_api_error(e):
+    return e.get("type") == "assistant" and e.get("isApiErrorMessage") is True
+
+
+def is_tool_result(e):
+    content = (e.get("message") or {}).get("content")
+    return isinstance(content, list) and any(
+        isinstance(c, dict) and c.get("type") == "tool_result" for c in content)
+
+
+def is_compact_boundary(e):
+    return e.get("type") == "system" and e.get("subtype") == "compact_boundary"
 
 
 def read_tail(path, nbytes):
@@ -137,8 +166,10 @@ class Plan:
         self.dropped_inbound = []
 
 
-def analyze(entries, reached_start, force=False):
+def analyze(entries, reached_start, force=False, mode="refusal"):
     """Returns (status, plan_or_reason). status: 'cut' | 'noop' | 'refuse' | 'more'."""
+    dropped = is_refusal if mode == "refusal" else is_api_error
+    capped = mode == "refusal" and not force
     by_uuid = {e["uuid"]: e for e in entries if is_chain(e)}
     leaf = find_leaf(entries)
     if leaf is None:
@@ -153,6 +184,11 @@ def analyze(entries, reached_start, force=False):
     turn_len = 0
     cur = leaf
     seen = set()
+    # A newest turn with no turn_duration yet was cut off before it ended (a
+    # stop while it was being taken). In overflow mode, one whose newest entry
+    # is an inbound prompt never got an answer and is dropped too; a newest
+    # tool_result means an answer (the tool_use) already landed in it.
+    open_turn = cur in by_uuid and not is_turn_end(by_uuid[cur])
     while True:
         e = by_uuid.get(cur) if cur else None
         if e is None:
@@ -169,18 +205,22 @@ def analyze(entries, reached_start, force=False):
             plan.turns += 1
             plan.entries += turn_len
             head, turn_len = None, 0
-            if not force:
+            if capped:
                 if plan.turns > MAX_DROPPED_TURNS:
                     return "refuse", f"more than {MAX_DROPPED_TURNS} refused turns in a row"
                 if plan.entries > MAX_DROPPED_ENTRIES:
                     return "refuse", f"refused turns span more than {MAX_DROPPED_ENTRIES} entries"
+        if mode == "overflow" and is_compact_boundary(e):
+            return "refuse", "every turn since the last compaction failed; rewinding further would restore the pre-compaction context"
         turn_len += 1
 
         if head is None and is_message(e):
             head = e
-            if not is_refusal(head):
+            unanswered = (mode == "overflow" and open_turn and plan.turns == 0
+                          and head.get("type") == "user" and not is_tool_result(head))
+            if not (dropped(head) or unanswered):
                 if plan.turns == 0:
-                    return "noop", "newest turn was not refused"
+                    return "noop", f"newest turn was not {'refused' if mode == 'refusal' else 'an API error'}"
                 plan.new_leaf = head["uuid"]
                 plan.session_id = head.get("sessionId")
                 return "cut", plan
@@ -191,11 +231,11 @@ def analyze(entries, reached_start, force=False):
         cur = e.get("parentUuid") or e.get("logicalParentUuid")
 
 
-def plan_for(path, force=False):
+def plan_for(path, force=False, mode="refusal"):
     nbytes = TAIL_START
     while True:
         entries, reached_start = read_tail(path, nbytes)
-        status, result = analyze(entries, reached_start, force=force)
+        status, result = analyze(entries, reached_start, force=force, mode=mode)
         if status != "more":
             return status, result
         nbytes *= 4
@@ -223,7 +263,15 @@ def append_rewind(path, plan):
         os.fsync(f.fileno())
 
 
-def queue_startup_note(config_dir, plan):
+def listed_inbound(plan):
+    """The dropped inbound ids, capped: an overflow can drop thousands."""
+    shown = plan.dropped_inbound[:MAX_LISTED_INBOUND]
+    lost = "; ".join(" ".join(f'{k}={v}' for k, v in a.items()) for a in shown)
+    more = len(plan.dropped_inbound) - len(shown)
+    return lost + (f"; and {more} more" if more > 0 else "")
+
+
+def queue_startup_note(config_dir, plan, mode="refusal"):
     jobs_file = os.path.join(config_dir, "channels", "scheduler", "jobs.json")
     if not os.path.isdir(os.path.dirname(jobs_file)):
         return
@@ -236,24 +284,36 @@ def queue_startup_note(config_dir, plan):
         log(f"jobs.json unreadable, skipping startup note: {err}")
         return
     if plan.dropped_inbound:
-        lost = "; ".join(" ".join(f'{k}={v}' for k, v in a.items()) for a in plan.dropped_inbound)
+        lost = listed_inbound(plan)
     else:
         lost = "(no inbound channel message identified; the trigger may have been a tool result)"
-    text = (
-        f"Safeguard recovery: before this restart the model safeguards refused {plan.turns} turn(s), "
-        "and the service rewound your session to the last turn before them, so that content is no "
-        f"longer in your context. Inbound message(s) dropped: {lost}. "
-        "Don't ask for it to be resent and don't try to reconstruct it. If someone is waiting on a "
-        "reply, a one-line note that their message tripped the safeguard and was dropped is enough; "
-        "otherwise carry on."
-    )
+    if mode == "overflow":
+        text = (
+            f"Overflow recovery: before this restart {plan.turns} turn(s) in a row failed on API errors "
+            "(quota or outage), their inbound messages piled up until your session was larger than the "
+            "model's context window, and auto-compaction could not fit it. The service rewound your "
+            "session to the last turn that got an answer, so nothing after it is in your context. "
+            f"Inbound message(s) dropped ({len(plan.dropped_inbound)}): {lost}. The chat logs still "
+            "have them if you need to catch up; don't answer stale ones one by one."
+        )
+        title = "overflow recovery"
+    else:
+        text = (
+            f"Safeguard recovery: before this restart the model safeguards refused {plan.turns} turn(s), "
+            "and the service rewound your session to the last turn before them, so that content is no "
+            f"longer in your context. Inbound message(s) dropped: {lost}. "
+            "Don't ask for it to be resent and don't try to reconstruct it. If someone is waiting on a "
+            "reply, a one-line note that their message tripped the safeguard and was dropped is enough; "
+            "otherwise carry on."
+        )
+        title = "safeguard recovery"
     store.setdefault("jobs", []).append({
         "id": "sched_" + secrets.token_hex(6),
         "fire_at": 0,
         "text": text,
         "execution_count": 0,
         "created_at": int(time.time() * 1000),
-        "title": "safeguard recovery",
+        "title": title,
         "on_startup": True,
     })
     tmp = jobs_file + ".tmp"
@@ -273,26 +333,28 @@ def record(config_dir, path, status, detail):
         log(f"could not write {LOG_NAME}: {err}")
 
 
-def run(path, config_dir, dry_run=False, notify=False, force=False):
-    status, result = plan_for(path, force=force)
+def run(path, config_dir, dry_run=False, notify=False, force=False, mode="refusal"):
+    status, result = plan_for(path, force=force, mode=mode)
     if status != "cut":
         log(f"{status}: {result}")
         if config_dir:
-            record(config_dir, path, status, {"reason": result})
+            record(config_dir, path, status, {"mode": mode, "reason": result})
         return 1 if status == "noop" else 4
     plan = result
-    detail = {"old_leaf": plan.old_leaf, "new_leaf": plan.new_leaf, "turns": plan.turns,
-              "entries": plan.entries, "dropped_inbound": plan.dropped_inbound,
+    detail = {"mode": mode, "old_leaf": plan.old_leaf, "new_leaf": plan.new_leaf, "turns": plan.turns,
+              "entries": plan.entries, "dropped_inbound_count": len(plan.dropped_inbound),
+              "dropped_inbound": plan.dropped_inbound[:MAX_LISTED_INBOUND],
               "undo": f"append a last-prompt with leafUuid={plan.old_leaf} explicit=true"}
     if dry_run:
         print(json.dumps(detail, indent=1))
         return 0
     append_rewind(path, plan)
-    log(f"rewound {plan.turns} refused turn(s): leaf {plan.old_leaf} -> {plan.new_leaf}")
+    log(f"rewound {plan.turns} {'refused' if mode == 'refusal' else 'failed'} turn(s): "
+        f"leaf {plan.old_leaf} -> {plan.new_leaf}")
     if config_dir:
         record(config_dir, path, "rewound", detail)
         if notify:
-            queue_startup_note(config_dir, plan)
+            queue_startup_note(config_dir, plan, mode)
     return 0
 
 
@@ -318,7 +380,11 @@ def from_marker():
     if not (path.startswith(projects) and path.endswith(".jsonl") and os.path.isfile(path)):
         log(f"marker transcript_path outside {projects} or missing: {path!r}")
         return 2
-    return run(path, config_dir, notify=True)
+    mode = request.get("mode", "refusal")
+    if mode not in MODES:
+        log(f"marker mode {mode!r} is not one of {MODES}")
+        return 2
+    return run(path, config_dir, notify=True, mode=mode)
 
 
 def main(argv):
@@ -327,7 +393,8 @@ def main(argv):
     dry_run = "--dry-run" in argv
     force = "--force" in argv
     notify = "--no-notify" not in argv
-    args = [a for a in argv[1:] if a not in ("--dry-run", "--force", "--no-notify")]
+    mode = "overflow" if "--overflow" in argv else "refusal"
+    args = [a for a in argv[1:] if a not in ("--dry-run", "--force", "--no-notify", "--overflow")]
     if len(args) != 1 or not os.path.isfile(args[0]):
         print(__doc__, file=sys.stderr)
         return 2
@@ -337,7 +404,7 @@ def main(argv):
         m = re.search(r"(.*?/\.claude)(?:/|$)", path)
         if m:
             config_dir = m.group(1)
-    return run(path, config_dir, dry_run=dry_run, force=force, notify=notify)
+    return run(path, config_dir, dry_run=dry_run, force=force, notify=notify, mode=mode)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,12 @@ stop_reason "refusal"), which fires StopFailure with the notice text in
      holding it keeps claude from starting the next queued message on top of
      the flagged context in the seconds before the stop lands.
 
+A context overflow ("Prompt is too long", which is also how a failed
+auto-compaction ends the turn) takes the same path with "mode": "overflow"
+in the marker: the rewind then drops every trailing turn that ended on an
+API error, back to the last one that got an answer. Without it the bot
+wedges for good, since no turn and no compaction fits any more.
+
 A breaker stops it after BREAKER_MAX recoveries in BREAKER_WINDOW seconds:
 past that, something keeps re-triggering the flag and a restart loop would
 not fix it. The bot is then left as it is, for a human.
@@ -44,6 +50,7 @@ RESTART_DELAY = "5s"
 SAFEGUARD_NOTICE = re.compile(
     r"safeguards flagged|can't respond to (this|your last) message|can't help with this\. Start a new session"
 )
+OVERFLOW_NOTICE = re.compile(r"^Prompt is too long|reached its context window limit")
 
 
 def cmdline(pid):
@@ -121,7 +128,12 @@ def main():
         return 0
     if event.get("hook_event_name") != "StopFailure" or event.get("error") != "invalid_request":
         return 0
-    if not SAFEGUARD_NOTICE.search(event.get("last_assistant_message") or ""):
+    notice = event.get("last_assistant_message") or ""
+    if SAFEGUARD_NOTICE.search(notice):
+        mode = "refusal"
+    elif OVERFLOW_NOTICE.search(notice):
+        mode = "overflow"
+    else:
         return 0
 
     config_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
@@ -142,7 +154,7 @@ def main():
     tmp = marker + ".tmp"
     with open(tmp, "w") as f:
         json.dump({"transcript_path": transcript, "session_id": event.get("session_id"),
-                   "ts": now}, f)
+                   "mode": mode, "ts": now}, f)
     os.replace(tmp, marker)
 
     restart = subprocess.run(
@@ -154,7 +166,7 @@ def main():
         os.unlink(marker)
         log(config_dir, status="error", reason="systemd-run failed", stderr=restart.stderr.strip())
         return 0
-    log(config_dir, status="restarting", unit=unit, transcript=transcript)
+    log(config_dir, status="restarting", mode=mode, unit=unit, transcript=transcript)
     time.sleep(110)
     return 0
 
